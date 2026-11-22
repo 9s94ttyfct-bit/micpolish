@@ -206,7 +206,7 @@ Inworld 的注意力和前馈层是 ANE 的潜在候选，但其块内注意力�
 ### 5.9 存储与自动清理
 
 - **会话目录**（默认 `~/Music/MicPolish/<日期-名称>/`，可改）永久保存三样东西：
-  - 原始音频：自录为 `original.flac`（48 kHz / 24-bit 单声道，FLAC 无损；对语音一般在每分钟 4–6 MB 量级，此为估算，实测后写进 README）；导入的则是原文件的原样副本。
+  - 原始音频：自录为 `original.flac`（48 kHz / 24-bit 单声道，FLAC 无损；实测带噪语音约每分钟 4.9 MB，见 `docs/performance.md`）；导入的则是原文件的原样副本。
   - 成品：`<名称>.m4a` 或 `<名称>.mp3`。重新导出时覆盖旧成品，不累积多个版本。
   - `session.json`：各级参数、模型 revision、实际后端、处理时间，用来在需要时从原始音频完整复现成品。体积可忽略。
 - **临时工作区**：`~/Library/Caches/MicPolish/work/<会话 ID>/`，存放各 AI 阶段的中间结果（float32 CAF），只在编辑期间存在。
