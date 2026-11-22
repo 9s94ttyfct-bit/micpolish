@@ -49,49 +49,26 @@ final class DeviceCapture: @unchecked Sendable {
         }
         var instance: AudioUnit?
         try Self.check(AudioComponentInstanceNew(component, &instance))
-        unit = instance!
-
-        var on: UInt32 = 1, off: UInt32 = 0
-        try Self.check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1,
-                                            &on, UInt32(MemoryLayout<UInt32>.size)))
-        try Self.check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0,
-                                            &off, UInt32(MemoryLayout<UInt32>.size)))
-        var device = deviceID
-        try Self.check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
-                                            &device, UInt32(MemoryLayout<AudioDeviceID>.size)))
-
-        // The device side of the input bus gives the hardware rate and channels.
-        var hardware = AudioStreamBasicDescription()
-        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
-        try Self.check(AudioUnitGetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 1,
-                                            &hardware, &size))
-        guard hardware.mSampleRate > 0, hardware.mChannelsPerFrame > 0 else {
-            throw RecorderError.deviceSelectionFailed(kAudioUnitErr_FormatNotSupported)
+        let unit = instance!
+        // Until every stored property is set a throw skips `deinit`, so the
+        // unit is disposed here if configuring it fails.
+        let format: (sampleRate: Double, channels: Int, maxFrames: Int)
+        do {
+            format = try Self.configure(unit, deviceID: deviceID)
+        } catch {
+            AudioComponentInstanceDispose(unit)
+            throw error
         }
-        sampleRate = hardware.mSampleRate
-        channels = Int(hardware.mChannelsPerFrame)
-
-        // Ask for planar Float32 at the hardware rate (no sample-rate conversion in the unit).
-        var client = AudioStreamBasicDescription(
-            mSampleRate: sampleRate, mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
-            mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4,
-            mChannelsPerFrame: UInt32(channels), mBitsPerChannel: 32, mReserved: 0)
-        try Self.check(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1,
-                                            &client, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)))
-
-        var frames: UInt32 = 0
-        size = UInt32(MemoryLayout<UInt32>.size)
-        if AudioUnitGetProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0,
-                                &frames, &size) != noErr || frames == 0 {
-            frames = 4096
-        }
-        maxFrames = Int(frames)
+        self.unit = unit
+        sampleRate = format.sampleRate
+        channels = format.channels
+        maxFrames = format.maxFrames
         bufferList = AudioBufferList.allocate(maximumBuffers: channels)
         for i in 0..<channels {
             bufferList[i] = AudioBuffer(mNumberChannels: 1, mDataByteSize: UInt32(maxFrames * 4),
                                         mData: UnsafeMutableRawPointer.allocate(byteCount: maxFrames * 4, alignment: 16))
         }
+        // From here on a throw runs `deinit`, which releases the unit and buffers.
 
         var callback = AURenderCallbackStruct(inputProc: { refCon, flags, timeStamp, bus, frameCount, _ in
             let capture = Unmanaged<DeviceCapture>.fromOpaque(refCon).takeUnretainedValue()
@@ -100,6 +77,44 @@ final class DeviceCapture: @unchecked Sendable {
         try Self.check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0,
                                             &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)))
         try Self.check(AudioUnitInitialize(unit))
+    }
+
+    /// Enables input only, binds `deviceID` and sets planar Float32 at the
+    /// device's own rate (no sample-rate conversion in the unit).
+    private static func configure(_ unit: AudioUnit, deviceID: AudioDeviceID) throws
+        -> (sampleRate: Double, channels: Int, maxFrames: Int) {
+        var on: UInt32 = 1, off: UInt32 = 0
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1,
+                                       &on, UInt32(MemoryLayout<UInt32>.size)))
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0,
+                                       &off, UInt32(MemoryLayout<UInt32>.size)))
+        var device = deviceID
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                       &device, UInt32(MemoryLayout<AudioDeviceID>.size)))
+
+        // The device side of the input bus gives the hardware rate and channels.
+        var hardware = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        try check(AudioUnitGetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 1,
+                                       &hardware, &size))
+        guard hardware.mSampleRate > 0, hardware.mChannelsPerFrame > 0 else {
+            throw RecorderError.deviceSelectionFailed(kAudioUnitErr_FormatNotSupported)
+        }
+        var client = AudioStreamBasicDescription(
+            mSampleRate: hardware.mSampleRate, mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
+            mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4,
+            mChannelsPerFrame: hardware.mChannelsPerFrame, mBitsPerChannel: 32, mReserved: 0)
+        try check(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1,
+                                       &client, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)))
+
+        var frames: UInt32 = 0
+        size = UInt32(MemoryLayout<UInt32>.size)
+        if AudioUnitGetProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0,
+                                &frames, &size) != noErr || frames == 0 {
+            frames = 4096
+        }
+        return (hardware.mSampleRate, Int(hardware.mChannelsPerFrame), Int(frames))
     }
 
     deinit {

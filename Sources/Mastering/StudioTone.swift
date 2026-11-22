@@ -42,13 +42,22 @@ public enum StudioTone {
         /// limits. Bands with no content (more than 50 dB below the loudest)
         /// are left alone, and the 63 Hz band is only ever cut.
         public var correction: [Double] {
-            let reference = voice == .male ? StudioTone.male : StudioTone.female
+            let reference = StudioTone.reference(pitchHz: medianPitchHz)
             return centers.indices.map { i in
                 guard relativeLevel[i] > -50 else { return 0 }
                 let delta = reference[i] - shape[i]
                 return i == 0 ? min(0, delta) : delta
             }
         }
+    }
+
+    /// The reference for a voice of this median pitch: the male curve up to
+    /// 145 Hz, the female curve from 175 Hz, and a linear blend in between,
+    /// where pitch alone cannot tell lower female from higher male voices.
+    /// Without a pitch (no voiced frames) the two are averaged.
+    static func reference(pitchHz: Double?) -> [Double] {
+        let femaleWeight = pitchHz.map { max(0, min(1, ($0 - 145) / 30)) } ?? 0.5
+        return zip(male, female).map { $0 * (1 - femaleWeight) + $1 * femaleWeight }
     }
 
     /// The per-band target (dB) for `amount` in 0...1, limited to ±6 dB.

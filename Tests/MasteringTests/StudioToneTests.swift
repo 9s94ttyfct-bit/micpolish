@@ -77,12 +77,12 @@ final class StudioToneTests: XCTestCase {
         let input = try write(noise(seconds: 20), name: "noise.caf")
         let before = try StudioTone.analyze(url: input)
         let after = try StudioTone.analyze(url: render(input, onlyStudioTone, name: "out.caf"))
-        let reference = before.voice == .male ? StudioTone.male : StudioTone.female
+        let reference = StudioTone.reference(pitchHz: before.medianPitchHz)
         // White noise is far from speech, so the ±6 dB limit leaves some distance.
         XCTAssertLessThan(Self.distance(after.shape, reference), 0.7 * Self.distance(before.shape, reference))
     }
 
-    func testSpectrumAlreadyAtTheReferenceGetsNoCorrection() throws {
+    func testSpectrumAtTheReferenceMeasuresAsTheReference() throws {
         // Log-spaced partials whose octave-band powers follow the female reference.
         let partialsPerBand = 20
         var partials: [(frequency: Double, amplitude: Double, phase: Double)] = []
@@ -97,11 +97,19 @@ final class StudioToneTests: XCTestCase {
             Float(0.02 * partials.reduce(0) { $0 + $1.amplitude * sin(2 * Double.pi * $1.frequency * Double(i) / 48_000 + $1.phase) })
         }
         let analysis = try StudioTone.analyze(url: write(samples, name: "reference.caf"))
-        XCTAssertEqual(analysis.voice, .female)
         // The narrow 125 Hz band loses some partial power to its neighbours (window leakage).
-        XCTAssertEqual(analysis.correction[1], 0, accuracy: 2.5)
+        XCTAssertEqual(analysis.shape[1], StudioTone.female[1], accuracy: 2.5)
         for i in 2...8 {
-            XCTAssertEqual(analysis.correction[i], 0, accuracy: 1.0, "band \(Int(StudioTone.centers[i])) Hz")
+            XCTAssertEqual(analysis.shape[i], StudioTone.female[i], accuracy: 1.0, "band \(Int(StudioTone.centers[i])) Hz")
+        }
+    }
+
+    func testReferenceBlendsBetweenMaleAndFemalePitch() {
+        XCTAssertEqual(StudioTone.reference(pitchHz: 120), StudioTone.male)
+        XCTAssertEqual(StudioTone.reference(pitchHz: 200), StudioTone.female)
+        let middle = StudioTone.reference(pitchHz: 160)
+        for i in StudioTone.centers.indices {
+            XCTAssertEqual(middle[i], (StudioTone.male[i] + StudioTone.female[i]) / 2, accuracy: 1e-9)
         }
     }
 
