@@ -1,0 +1,41 @@
+MicPolish
+Copyright 2026 9s94ttyfct-bit
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Third-party components are listed below with their licenses.
+
+----------------------------------------------------------------------
+Sources/ReuseMLX — SpeechLens
+https://github.com/faraday/SpeechLens (commit 0c0dcbd7d29b57d62d90eeadeb42496a6b794a1f)
+Copyright 2026 Çağatay Çallı. Licensed under the Apache License, Version 2.0.
+The RE-USE SE-Mamba inference code, Metal kernels and weight key mapping are
+taken from SpeechLens' Sources/Inference and Sources/WeightPort, with the
+logging subsystem, environment variable and tool paths renamed for MicPolish,
+and the STFT input normalizing signed-zero imaginary parts (see Inference.swift).
+
+----------------------------------------------------------------------
+LAME 3.100 — MP3 encoder (https://lame.sourceforge.io)
+Licensed under the GNU Library General Public License version 2 or later.
+Built from the unmodified upstream source by tools/build_lame.sh (one export
+removed from include/libmp3lame.sym so Apple's linker accepts it) and linked
+dynamically as libmp3lame.0.dylib, which can be replaced. See
+licenses/LAME-LGPL-2.0.txt.
+
+----------------------------------------------------------------------
+NVIDIA NemotronLabs RE-USE — speech enhancement model
+https://huggingface.co/nvidia/NVIDIA-NemotronLabs-RE-USE
+Licensed under the OpenMDW License Agreement, version 1.1 (OpenMDW-1.1).
+The weights are not distributed with MicPolish: the app downloads them at a
+pinned revision and converts them locally. Tests/Fixtures/reuse contains audio
+and reference outputs derived from NVIDIA materials under OpenMDW-1.1, and
+tools/parity/reuse_reference.py loads NVIDIA's model code at run time. The
+license text ships in the app (MicPolish_ModelStore.bundle/licenses).
+
+----------------------------------------------------------------------
+MLX (mlx, mlx-c, mlx-swift) — Copyright © 2023 Apple Inc., MIT License.
+fmt — MIT License. nlohmann/json — MIT License.
+metal-cpp — Copyright © 2023 Apple Inc., Apache License 2.0.
+swift-numerics, swift-argument-parser — Apple Inc., Apache License 2.0.
+These are statically linked; their license texts ship in the app under
+Contents/Resources/licenses.
