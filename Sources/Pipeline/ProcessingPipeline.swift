@@ -1,6 +1,7 @@
 import AudioCore
 import CryptoKit
 import Foundation
+import MLX
 import Sessions
 
 public struct PipelineProgress: Sendable {
@@ -51,6 +52,9 @@ public actor ProcessingPipeline {
                 }
                 report(0)
                 do {
+                    // Each model's freed buffers go back to the system before the
+                    // next model allocates, so peaks of consecutive stages never add up.
+                    defer { MLX.Memory.clearCache() }
                     try await stage.run(input: current, output: partial, progress: report)
                     try Task.checkCancellation()
                     try FileManager.default.moveItem(at: partial, to: final)

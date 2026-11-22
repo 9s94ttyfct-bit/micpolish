@@ -53,4 +53,17 @@ final class AudioTrimTests: XCTestCase {
         XCTAssertEqual(range.end, 5.25, accuracy: 1e-9)
         XCTAssertNil(AudioTrim.detectSoundRange(envelope: [0, 0, 0], bucketSeconds: 0.05))
     }
+
+    func testDetectSoundRangeIgnoresClicksRoomToneAndDigitalSilence() throws {
+        func db(_ v: Float) -> Float { pow(10, v / 20) }
+        // Digital silence, a quiet floor with one click, louder room tone, speech, quiet tail.
+        var envelope = [Float](repeating: 0, count: 2) + [Float](repeating: db(-44), count: 8)
+        envelope[5] = db(-10)
+        envelope += [Float](repeating: db(-33), count: 24) + [Float](repeating: db(-5), count: 30)
+            + [Float](repeating: db(-44), count: 10)
+        envelope[40] = 1
+        let range = try XCTUnwrap(AudioTrim.detectSoundRange(envelope: envelope, bucketSeconds: 0.05))
+        XCTAssertEqual(range.start, 34 * 0.05 - 0.25, accuracy: 1e-9)
+        XCTAssertEqual(range.end, 64 * 0.05 + 0.25, accuracy: 1e-9)
+    }
 }

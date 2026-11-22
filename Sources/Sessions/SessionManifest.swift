@@ -24,13 +24,16 @@ public enum HighBandCutoff: String, Codable, CaseIterable, Sendable {
 /// AI-stage settings. New fields must have defaults so older manifests decode.
 public struct ProcessingSettings: Codable, Equatable, Sendable {
     public var reuseVariant: String = "reuse-nemotron"
+    /// Inworld Voice Isolator before RE-USE, for heavy background noise.
+    public var strongDenoise = false
     /// LavaSR v2 high-frequency enhancement after RE-USE.
     public var highBandEnabled = false
     public var highBandCutoff: HighBandCutoff = .auto
 
-    public init(reuseVariant: String = "reuse-nemotron", highBandEnabled: Bool = false,
+    public init(reuseVariant: String = "reuse-nemotron", strongDenoise: Bool = false, highBandEnabled: Bool = false,
                 highBandCutoff: HighBandCutoff = .auto) {
         self.reuseVariant = reuseVariant
+        self.strongDenoise = strongDenoise
         self.highBandEnabled = highBandEnabled
         self.highBandCutoff = highBandCutoff
     }
@@ -38,6 +41,7 @@ public struct ProcessingSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         reuseVariant = try c.decodeIfPresent(String.self, forKey: .reuseVariant) ?? "reuse-nemotron"
+        strongDenoise = try c.decodeIfPresent(Bool.self, forKey: .strongDenoise) ?? false
         highBandEnabled = try c.decodeIfPresent(Bool.self, forKey: .highBandEnabled) ?? false
         highBandCutoff = try c.decodeIfPresent(HighBandCutoff.self, forKey: .highBandCutoff) ?? .auto
     }

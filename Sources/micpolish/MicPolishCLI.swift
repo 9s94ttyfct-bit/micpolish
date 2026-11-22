@@ -2,6 +2,7 @@ import ArgumentParser
 import AudioCore
 import Export
 import Foundation
+import InworldMLX
 import LavaMLX
 import Mastering
 import ModelStore
@@ -84,6 +85,7 @@ struct Process: AsyncParsableCommand {
     @Option(help: "Mastering preset.") var preset: Preset = .default
     @Option(help: "Model variant.") var variant: Variant = .reuseNemotron
     @Option(help: "LavaSR high-band enhancement: off, auto, or a start frequency in Hz.") var highBand = "off"
+    @Flag(help: "Run Inworld Voice Isolator before RE-USE (heavy background noise).") var strongDenoise = false
 
     func validate() throws {
         guard highBand == "off" || highBand == "auto" || Double(highBand) != nil else {
@@ -118,6 +120,10 @@ struct Process: AsyncParsableCommand {
             ReuseStage(enhancer: enhancer, variantID: variant.rawValue, revision: variant.descriptor.revision),
             ResampleStage(),
         ]
+        if strongDenoise {
+            let isolator = try InworldIsolator(weightsURL: try await installModel(ModelCatalog.inworld))
+            stages.insert(InworldStage(isolator: isolator, revision: ModelCatalog.inworld.revision), at: 0)
+        }
         if highBand != "off" {
             let lava = try LavaEnhancer(weightsURL: try await installModel(ModelCatalog.lavaSR))
             let cutoff = Double(highBand) ?? (manifest.original.sampleRate < 48_000 ? Double(manifest.original.sampleRate) / 2 : nil)
@@ -139,7 +145,8 @@ struct Process: AsyncParsableCommand {
 
         let duration = manifest.original.durationSeconds
         print(String(format: "Input: %.1f s @ %d Hz", duration, manifest.original.sampleRate))
-        print(String(format: "RE-USE (%@): %.2f s, RTF %.3f", variant.rawValue, aiSeconds, aiSeconds / max(duration, 0.001)))
+        print(String(format: "AI (%@%@): %.2f s, RTF %.3f", strongDenoise ? "inworld + " : "", variant.rawValue,
+                     aiSeconds, aiSeconds / max(duration, 0.001)))
         print(String(format: "Loudness before gain: %@ LUFS, gain %+.1f dB",
                      report.measuredLUFS.map { String(format: "%.1f", $0) } ?? "n/a", report.appliedGainDB))
         print(String(format: "Output: %@ LUFS, true peak %.2f dBTP",
@@ -155,22 +162,28 @@ extension Duration {
     }
 }
 
-/// Writes level-matched, shuffled variants for blind listening (design §7.8):
-/// RE-USE only, and RE-USE followed by LavaSR at automatic, 12 kHz and 8 kHz
-/// start frequencies, each through the same mastering preset. The key is
-/// written to key.json; listen before opening it.
+/// Writes level-matched, shuffled variants for blind listening (design §7):
+/// `--compare high-band` (default): RE-USE alone and followed by LavaSR at
+/// automatic, 12 kHz and 8 kHz start frequencies; `--compare denoise`: RE-USE
+/// alone, Inworld then RE-USE, RE-USE then Inworld, and Inworld alone. Every
+/// variant goes through the same mastering preset. The key is written to
+/// key.json; listen before opening it.
 struct Abx: AsyncParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Generate blind-listening variants.")
+
+    enum Comparison: String, ExpressibleByArgument, CaseIterable {
+        case highBand = "high-band", denoise
+    }
 
     @Argument(help: "Input audio file.") var input: String
     @Option(help: "Output folder.") var out: String
     @Option(help: "Mastering preset.") var preset: Preset = .default
+    @Option(help: "What to compare: high-band or denoise.") var compare: Comparison = .highBand
 
     func run() async throws {
         let outDir = URL(fileURLWithPath: out, isDirectory: true)
         try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
         let reuse = try MambaEnhancer(modelWeightsURL: try await installModel(ModelCatalog.reuse))
-        let lava = try LavaEnhancer(weightsURL: try await installModel(ModelCatalog.lavaSR))
 
         let sessionRoot = FileManager.default.temporaryDirectory.appendingPathComponent("micpolish-abx-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: sessionRoot) }
@@ -179,19 +192,34 @@ struct Abx: AsyncParsableCommand {
         let workspace = Workspace(cacheRoot: Workspace.defaultCacheRoot, sessionID: manifest.id)
         defer { try? workspace.purge() }
 
-        let sourceNyquist = manifest.original.sampleRate < 48_000 ? Double(manifest.original.sampleRate) / 2 : nil
-        let variants: [(String, Double??)] = [
-            ("RE-USE", .none), ("RE-USE + LavaSR auto", .some(sourceNyquist)),
-            ("RE-USE + LavaSR 12 kHz", .some(12_000)), ("RE-USE + LavaSR 8 kHz", .some(8_000)),
-        ]
+        let reuseStage = ReuseStage(enhancer: reuse, variantID: ModelCatalog.reuse.id, revision: ModelCatalog.reuse.revision)
+        var variants: [(String, [any AudioStage])] = []
+        switch compare {
+        case .highBand:
+            let lava = try LavaEnhancer(weightsURL: try await installModel(ModelCatalog.lavaSR))
+            let sourceNyquist = manifest.original.sampleRate < 48_000 ? Double(manifest.original.sampleRate) / 2 : nil
+            func lavaStage(_ cutoff: Double?) -> LavaStage {
+                LavaStage(enhancer: lava, revision: ModelCatalog.lavaSR.revision, cutoffHz: cutoff)
+            }
+            variants = [
+                ("RE-USE", [reuseStage, ResampleStage()]),
+                ("RE-USE + LavaSR auto", [reuseStage, ResampleStage(), lavaStage(sourceNyquist)]),
+                ("RE-USE + LavaSR 12 kHz", [reuseStage, ResampleStage(), lavaStage(12_000)]),
+                ("RE-USE + LavaSR 8 kHz", [reuseStage, ResampleStage(), lavaStage(8_000)]),
+            ]
+        case .denoise:
+            let isolator = try InworldIsolator(weightsURL: try await installModel(ModelCatalog.inworld))
+            let inworldStage = InworldStage(isolator: isolator, revision: ModelCatalog.inworld.revision)
+            variants = [
+                ("RE-USE", [reuseStage, ResampleStage()]),
+                ("Inworld -> RE-USE", [inworldStage, reuseStage]),
+                ("RE-USE -> Inworld", [reuseStage, inworldStage]),
+                ("Inworld", [inworldStage]),
+            ]
+        }
         let letters = ["A", "B", "C", "D"].shuffled()
         var key: [String: String] = [:]
-        for ((label, cutoff), letter) in zip(variants, letters) {
-            var stages: [any AudioStage] = [
-                ReuseStage(enhancer: reuse, variantID: ModelCatalog.reuse.id, revision: ModelCatalog.reuse.revision),
-                ResampleStage(),
-            ]
-            if let cutoff { stages.append(LavaStage(enhancer: lava, revision: ModelCatalog.lavaSR.revision, cutoffHz: cutoff)) }
+        for ((label, stages), letter) in zip(variants, letters) {
             let processed = try await ProcessingPipeline(stages: stages, workspace: workspace)
                 .run(original: store.originalURL(for: manifest)) { _ in }
             let writer = try MonoFileWriter(url: outDir.appendingPathComponent("\(letter).flac"), sampleRate: 48_000, format: .flac24)

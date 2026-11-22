@@ -47,3 +47,12 @@ Sources/LavaMLX is a Swift/MLX port of its inference code (Vocos backbone,
 ISTFT head and Linkwitz-style merge). Weights are downloaded at run time from
 a safetensors mirror (AEmotionStudio/lavasr-models, pinned revision) of
 YatharthS/LavaSR enhancer_v2.
+
+----------------------------------------------------------------------
+Inworld Voice Isolator v1 (https://github.com/inworld-ai/voice-isolator)
+Copyright 2026 Inworld AI. Licensed under the Apache License, Version 2.0.
+Sources/InworldMLX is a Swift/MLX port of its offline inference code (band-split
+dual-path network and offline chunk stitching). The offline checkpoint
+(inworld/voice-isolator denoiser.safetensors, pinned revision) is downloaded at
+run time. Its upstream NOTICE, including training-data attributions, ships
+with the app in licenses/Apache-2.0-Inworld.txt.

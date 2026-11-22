@@ -1231,7 +1231,26 @@
           }
         }
       }
+    },
+    "强降噪（Inworld）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strong noise removal (Inworld)"
+          }
+        }
+      }
+    },
+    "在 AI 修复之前先把人声从强背景噪声（音乐、人声嘈杂、风扇）里分离出来；安静环境下不需要。首次使用会下载约 256 MB 的模型。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separates the voice from heavy background noise (music, crowds, fans) before AI restoration; not needed in a quiet room. Downloads a 256 MB model on first use."
+          }
+        }
+      }
     }
   }
 }
-

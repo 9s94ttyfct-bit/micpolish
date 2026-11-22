@@ -284,3 +284,42 @@ final class LavaStageTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(extender.cutoffs.first), 8_000, accuracy: 600)
     }
 }
+
+/// Halves the signal and releases it in 1000-sample pieces, like a model
+/// that holds back a chunk.
+final class HalvingIsolator: VoiceIsolating, @unchecked Sendable {
+    final class Session: IsolationSession {
+        private var pending: [Float] = []
+        func push(_ samples: [Float]) throws -> [Float] {
+            pending += samples.map { $0 * 0.5 }
+            let ready = pending.count / 1000 * 1000
+            defer { pending.removeFirst(ready) }
+            return Array(pending.prefix(ready))
+        }
+        func finish() throws -> [Float] { defer { pending = [] }; return pending }
+    }
+    func makeIsolationSession() -> any IsolationSession { Session() }
+}
+
+final class InworldStageTests: XCTestCase {
+    func testResamplesTo48kAndKeepsDuration() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let input = dir.appendingPathComponent("in.caf")
+        let w = try MonoFileWriter(url: input, sampleRate: 16_000, format: .cafFloat32)
+        try w.append((0..<16_123).map { Float(0.4 * sin(Double($0) * 0.05)) })
+        try w.close()
+
+        let stage = InworldStage(isolator: HalvingIsolator(), revision: "test")
+        XCTAssertEqual(stage.outputSampleRate(forInput: 16_000), 48_000)
+        let output = dir.appendingPathComponent("out.caf")
+        try await stage.run(input: StageIO(url: input, sampleRate: 16_000, cacheKey: "k"), output: output) { _ in }
+
+        let (samples, rate) = try readAllMono(output)
+        XCTAssertEqual(rate, 48_000)
+        XCTAssertEqual(Double(samples.count), Double(16_123 * 3), accuracy: 3)
+        // Halved 0.4-amplitude sine, away from the resampler's edge transients.
+        XCTAssertEqual(Double(samples[4_800..<(samples.count - 4_800)].map(abs).max() ?? 0), 0.2, accuracy: 0.01)
+    }
+}

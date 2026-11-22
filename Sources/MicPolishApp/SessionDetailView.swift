@@ -359,6 +359,13 @@ private struct ProcessPanel: View {
                     .disabled(model.isBusy || (model.modelState != .ready && model.modelState != .notInstalled))
                 }
             }
+            Toggle("强降噪（Inworld）", isOn: Binding(
+                get: { manifest.processing.strongDenoise },
+                set: { v in model.updateSelected { $0.processing.strongDenoise = v } }))
+                .toggleStyle(.switch)
+            Text("在 AI 修复之前先把人声从强背景噪声（音乐、人声嘈杂、风扇）里分离出来；安静环境下不需要。首次使用会下载约 256 MB 的模型。")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 Toggle("高频增强（LavaSR）", isOn: Binding(
                     get: { manifest.processing.highBandEnabled },

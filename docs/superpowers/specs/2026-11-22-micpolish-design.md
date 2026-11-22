@@ -281,3 +281,7 @@ Inworld 的注意力和前馈层是 ANE 的潜在候选，但其块内注意力�
   - 方案取舍：裁剪放在 AI 之前可省下被裁部分的处理时间，但每次调整都要重跑 AI，舍弃。中间删除片段（多段剪辑）本轮不做。
 - **应用图标**：生成位图图标，`iconutil` 打包为 `AppIcon.icns`，`Info.plist` 声明 `CFBundleIconFile`。
 - **Plan 3（Inworld 强降噪）**：见 `docs/superpowers/plans/2026-11-22-micpolish-plan3-inworld.md`。
+- **Plan 3 结果**：`Sources/InworldMLX` 对拍上游 PyTorch（`inworld-ai/voice-isolator@c73b3fa`，权重 HF `9b0285b`）相对 RMSE ≈ 1e-6，含上游 golden 夹具；分块按 checkpoint 自带配置（8 s 窗、2 s 重叠、线性淡入淡出、末窗贴齐结尾）。60 s 输入 RTF ≈ 0.24，MLX 峰值 2.0 GiB；整条“Inworld → RE-USE”在 CLI 上进程峰值 4.5 GiB（RE-USE 单独 4.2 GiB），低于 5 GB 上限；每个阶段结束清空 MLX 缓存，避免相邻模型的峰值叠加。
+  - 界面：AI 修复卡片里的“强降噪（Inworld）”开关，默认关；首次使用下载 256 MB 并显示进度。非 48 kHz 导入先重采样到 48 kHz，之后 RE-USE 在 48 kHz 上运行。
+  - 顺序（Inworld 在 RE-USE 之前）仍待盲听确认：`micpolish abx <file> --out <dir> --compare denoise` 生成 RE-USE / Inworld→RE-USE / RE-USE→Inworld / 只用 Inworld 四个乱序版本。
+- **自动去首尾静音**（实测后修订）：噪声底取非数字静音桶的第 10 百分位，阈值取噪声底到峰值（dB）的中点，且须有相邻（两桶内）同样够响的桶，孤立的点击声和房间底噪不算声音。

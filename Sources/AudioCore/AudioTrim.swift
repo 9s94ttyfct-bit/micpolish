@@ -34,17 +34,25 @@ public enum AudioTrim {
         try writer.close()
     }
 
-    /// The span from the first to the last bucket of a peak `envelope` that is
-    /// within `thresholdBelowPeakDB` of its loudest bucket, widened by
-    /// `paddingSeconds` on each side. Nil when the envelope is silent.
+    /// The span that holds the recording's sound, widened by `paddingSeconds`
+    /// on each side, from a peak `envelope`. Nil when the envelope is silent.
+    ///
+    /// "Sound" is a bucket at least halfway (in dB) from the noise floor (10th
+    /// percentile of non-digital-silence buckets) to the loudest bucket, with
+    /// another such bucket within the next two (the previous two, for the
+    /// end), so an isolated click or the room tone does not count.
     public static func detectSoundRange(
-        envelope: [Float], bucketSeconds: Double,
-        thresholdBelowPeakDB: Double = 40, paddingSeconds: Double = 0.25
+        envelope: [Float], bucketSeconds: Double, paddingSeconds: Double = 0.25
     ) -> (start: Double, end: Double)? {
         guard let peak = envelope.max(), peak > 1e-6 else { return nil }
-        let threshold = peak * Float(pow(10, -thresholdBelowPeakDB / 20))
-        guard let first = envelope.firstIndex(where: { $0 >= threshold }),
-              let last = envelope.lastIndex(where: { $0 >= threshold }) else { return nil }
+        let levels = envelope.map { 20 * log10(Double(max($0, 1e-12))) }
+        let audible = levels.filter { $0 > -120 }.sorted()
+        let floor = audible[audible.count / 10]
+        let threshold = floor + (20 * log10(Double(peak)) - floor) / 2
+        let loud = levels.map { $0 >= threshold }
+        func isLoud(_ i: Int) -> Bool { loud.indices.contains(i) && loud[i] }
+        guard let first = loud.indices.first(where: { isLoud($0) && (isLoud($0 + 1) || isLoud($0 + 2)) }),
+              let last = loud.indices.last(where: { isLoud($0) && (isLoud($0 - 1) || isLoud($0 - 2)) }) else { return nil }
         let duration = Double(envelope.count) * bucketSeconds
         return (max(0, Double(first) * bucketSeconds - paddingSeconds),
                 min(duration, Double(last + 1) * bucketSeconds + paddingSeconds))

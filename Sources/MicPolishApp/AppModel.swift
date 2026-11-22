@@ -3,6 +3,7 @@ import AudioCore
 import Combine
 import Export
 import Foundation
+import InworldMLX
 import LavaMLX
 import Mastering
 import ModelStore
@@ -93,6 +94,7 @@ final class AppModel: ObservableObject {
     private(set) var store: SessionStore
     private var enhancers: [String: MambaEnhancer] = [:]
     private var lava: LavaEnhancer?
+    private var inworld: InworldIsolator?
     private var processingTask: Task<Void, Never>?
     private var batchTask: Task<Void, Never>?
     private var gainTask: Task<Void, Never>?
@@ -220,6 +222,16 @@ final class AppModel: ObservableObject {
         let enhancer = try LavaEnhancer(weightsURL: url)
         lava = enhancer
         return enhancer
+    }
+
+    private func inworldIsolator(progress: @escaping @MainActor (Double) -> Void) async throws -> InworldIsolator {
+        if let inworld { return inworld }
+        let url = try await modelStore.install(ModelCatalog.inworld) { fraction in
+            Task { @MainActor in progress(fraction) }
+        }
+        let isolator = try InworldIsolator(weightsURL: url)
+        inworld = isolator
+        return isolator
     }
 
     // MARK: Sessions
@@ -357,6 +369,7 @@ final class AppModel: ObservableObject {
     var isBusy: Bool { isExporting || isProcessing || batch != nil }
 
     private func stageLabel(_ id: String) -> String {
+        if id.hasPrefix("inworld") { return tr("强降噪（Inworld）", "Strong noise removal (Inworld)") }
         if id.hasPrefix("reuse") { return tr("AI 修复（RE-USE）", "AI restoration (RE-USE)") }
         if id.hasPrefix("lavasr") { return tr("高频增强（LavaSR）", "High-band enhancement (LavaSR)") }
         return tr("转换采样率", "Converting sample rate")
@@ -373,6 +386,14 @@ final class AppModel: ObservableObject {
             ResampleStage(),
         ]
         var revisions = [descriptor.id: descriptor.revision]
+        if m.processing.strongDenoise {
+            let label = tr("下载强降噪模型（约 256 MB）", "Downloading the noise-removal model (about 256 MB)")
+            progress(tr("准备强降噪模型", "Preparing the noise-removal model"), 0, nil)
+            let isolator = try await inworldIsolator { fraction in progress(label, fraction, nil) }
+            // Before RE-USE: remove heavy noise first, then restore.
+            stages.insert(InworldStage(isolator: isolator, revision: ModelCatalog.inworld.revision), at: 0)
+            revisions[ModelCatalog.inworld.id] = ModelCatalog.inworld.revision
+        }
         if m.processing.highBandEnabled {
             progress(tr("准备高频增强模型", "Preparing the high-band model"), 0, nil)
             let lava = try await lavaEnhancer()

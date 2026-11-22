@@ -67,7 +67,19 @@ public enum ModelCatalog {
         format: .asIs
     )
 
-    public static let all = [reuse, reuseLaughter, lavaSR]
+    /// Inworld Voice Isolator v1, offline checkpoint (Apache-2.0).
+    public static let inworld = ModelDescriptor(
+        id: "inworld-voice-isolator-v1",
+        repo: "inworld/voice-isolator",
+        revision: "9b0285b3fe8403aa8e2f1dbb2165a80a4294c970",
+        file: "denoiser.safetensors",
+        sha256: "647335a6aeb4dc706b895532c209d51e0e84a4849d17b339f00d4392a050ae53",
+        byteCount: 256_260_128,
+        licenseResource: "Apache-2.0-Inworld.txt",
+        format: .asIs
+    )
+
+    public static let all = [reuse, reuseLaughter, lavaSR, inworld]
 
     public static func descriptor(id: String) -> ModelDescriptor? {
         all.first { $0.id == id }
