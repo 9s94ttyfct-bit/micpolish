@@ -13,7 +13,6 @@ public enum ModelStoreError: Error, Equatable {
 /// `<root>/.staging/` and is moved into place only after verification and
 /// conversion succeed, so an interrupted install never looks installed.
 public actor ModelStore {
-    public static let weightsFileName = "model_mlx.safetensors"
 
     private let root: URL
     private let downloader: any Downloader
@@ -35,7 +34,7 @@ public actor ModelStore {
     }
 
     public func installedWeightsURL(_ d: ModelDescriptor) -> URL? {
-        let url = installDirectory(d).appendingPathComponent(Self.weightsFileName)
+        let url = installDirectory(d).appendingPathComponent(d.installedFileName)
         return fileManager.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -50,7 +49,7 @@ public actor ModelStore {
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: staging) }
 
-        let source = staging.appendingPathComponent(d.file)
+        let source = staging.appendingPathComponent((d.file as NSString).lastPathComponent)
         try await downloader.download(d.sourceURL, to: source, progress: progress)
 
         let size = (try fileManager.attributesOfItem(atPath: source.path)[.size] as? NSNumber)?.intValue ?? -1
@@ -63,7 +62,13 @@ public actor ModelStore {
         }
 
         let built = staging.appendingPathComponent("install", isDirectory: true)
-        try ReuseWeightConverter.convert(input: source, output: built.appendingPathComponent(Self.weightsFileName))
+        try FileManager.default.createDirectory(at: built, withIntermediateDirectories: true)
+        switch d.format {
+        case .reuseCheckpoint:
+            try ReuseWeightConverter.convert(input: source, output: built.appendingPathComponent(d.installedFileName))
+        case .asIs:
+            try fileManager.moveItem(at: source, to: built.appendingPathComponent(d.installedFileName))
+        }
         guard let license = Bundle.module.url(forResource: d.licenseResource, withExtension: nil, subdirectory: "licenses") else {
             throw ModelStoreError.missingLicense(d.licenseResource)
         }
@@ -75,7 +80,7 @@ public actor ModelStore {
             try fileManager.removeItem(at: destination)
         }
         try fileManager.moveItem(at: built, to: destination)
-        return destination.appendingPathComponent(Self.weightsFileName)
+        return destination.appendingPathComponent(d.installedFileName)
     }
 
     public func remove(_ d: ModelDescriptor) throws {

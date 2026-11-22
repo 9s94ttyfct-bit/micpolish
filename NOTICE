@@ -39,3 +39,11 @@ metal-cpp — Copyright © 2023 Apple Inc., Apache License 2.0.
 swift-numerics, swift-argument-parser — Apple Inc., Apache License 2.0.
 These are statically linked; their license texts ship in the app under
 Contents/Resources/licenses.
+
+----------------------------------------------------------------------
+LavaSR v2 — bandwidth extension model (https://github.com/ysharma3501/LavaSR)
+Copyright Yatharth Sharma. Licensed under the Apache License, Version 2.0.
+Sources/LavaMLX is a Swift/MLX port of its inference code (Vocos backbone,
+ISTFT head and Linkwitz-style merge). Weights are downloaded at run time from
+a safetensors mirror (AEmotionStudio/lavasr-models, pinned revision) of
+YatharthS/LavaSR enhancer_v2.

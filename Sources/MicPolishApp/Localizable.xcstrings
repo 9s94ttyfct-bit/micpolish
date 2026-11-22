@@ -1121,6 +1121,46 @@
           }
         }
       }
+    },
+    "高频增强（LavaSR）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High-band enhancement (LavaSR)"
+          }
+        }
+      }
+    },
+    "起始频率": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts at"
+          }
+        }
+      }
+    },
+    "自动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        }
+      }
+    },
+    "在 AI 修复之后重新生成起始频率以上的高频，让声音更通透；低于起始频率的部分保持不变。“自动”按录音实际带宽决定。首次使用会下载约 56 MB 的模型。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After AI restoration, regenerates the band above the start frequency for a more open sound; everything below it is kept. “Auto” follows the recording’s actual bandwidth. The first use downloads a 56 MB model."
+          }
+        }
+      }
     }
   }
 }

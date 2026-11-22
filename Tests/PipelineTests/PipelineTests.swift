@@ -205,3 +205,62 @@ enum PipelineTestModel {
         return try MambaEnhancer(modelWeightsURL: url)
     }
 }
+
+/// Returns its input unchanged and records the cutoffs it was asked for.
+final class IdentityExtender: BandwidthExtender, @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var cutoffs: [Double] = []
+    private(set) var chunkSizes: [Int] = []
+    func enhance(_ samples: [Float], cutoffHz: Double) throws -> [Float] {
+        lock.lock(); cutoffs.append(cutoffHz); chunkSizes.append(samples.count); lock.unlock()
+        return samples
+    }
+}
+
+final class LavaStageTests: XCTestCase {
+    func testChunkedCrossfadeReconstructsInput() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let input = dir.appendingPathComponent("in.caf")
+        let samples = (0..<(48_000 * 25 + 123)).map { Float(0.3 * sin(Double($0) * 0.01)) }
+        let w = try MonoFileWriter(url: input, sampleRate: 48_000, format: .cafFloat32)
+        try w.append(samples)
+        try w.close()
+
+        let extender = IdentityExtender()
+        let stage = LavaStage(enhancer: extender, revision: "test", cutoffHz: 12_000)
+        let output = dir.appendingPathComponent("out.caf")
+        try await stage.run(input: StageIO(url: input, sampleRate: 48_000, cacheKey: "k"), output: output) { _ in }
+
+        let result = try readAllMono(output).samples
+        XCTAssertEqual(result.count, samples.count)
+        XCTAssertLessThanOrEqual(zip(result, samples).map { abs($0 - $1) }.max() ?? 1, 1e-6)
+        XCTAssertEqual(Set(extender.cutoffs), [12_000])
+        XCTAssertTrue(extender.chunkSizes.allSatisfy { $0 <= LavaStage.chunkFrames })
+    }
+
+    func testAutoCutoffUsesMeasuredBandwidth() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Noise band-limited to 8 kHz by upsampling from 16 kHz.
+        var state: UInt64 = 9
+        let narrow = (0..<(16_000 * 3)).map { _ -> Float in
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Float(Double(state >> 11) / Double(1 << 53) * 2 - 1) * 0.2
+        }
+        let resampler = try StreamingResampler(from: 16_000, to: 48_000)
+        let wide = try resampler.process(narrow) + resampler.flush()
+        let input = dir.appendingPathComponent("in.caf")
+        let w = try MonoFileWriter(url: input, sampleRate: 48_000, format: .cafFloat32)
+        try w.append(wide)
+        try w.close()
+
+        let extender = IdentityExtender()
+        let stage = LavaStage(enhancer: extender, revision: "test", cutoffHz: nil)
+        try await stage.run(input: StageIO(url: input, sampleRate: 48_000, cacheKey: "k"),
+                            output: dir.appendingPathComponent("out.caf")) { _ in }
+        XCTAssertEqual(try XCTUnwrap(extender.cutoffs.first), 8_000, accuracy: 600)
+    }
+}

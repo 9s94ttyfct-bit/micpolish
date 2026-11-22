@@ -3,6 +3,7 @@ import AudioCore
 import Combine
 import Export
 import Foundation
+import LavaMLX
 import Mastering
 import ModelStore
 import Pipeline
@@ -91,6 +92,7 @@ final class AppModel: ObservableObject {
     let cacheRoot = Workspace.defaultCacheRoot
     private(set) var store: SessionStore
     private var enhancers: [String: MambaEnhancer] = [:]
+    private var lava: LavaEnhancer?
     private var processingTask: Task<Void, Never>?
     private var batchTask: Task<Void, Never>?
     private var gainTask: Task<Void, Never>?
@@ -210,6 +212,14 @@ final class AppModel: ObservableObject {
         let enhancer = try MambaEnhancer(modelWeightsURL: url)
         enhancers[descriptor.id] = enhancer
         return (enhancer, descriptor)
+    }
+
+    private func lavaEnhancer() async throws -> LavaEnhancer {
+        if let lava { return lava }
+        let url = try await modelStore.install(ModelCatalog.lavaSR) { _ in }
+        let enhancer = try LavaEnhancer(weightsURL: url)
+        lava = enhancer
+        return enhancer
     }
 
     // MARK: Sessions
@@ -346,19 +356,32 @@ final class AppModel: ObservableObject {
     var isBusy: Bool { isExporting || isProcessing || batch != nil }
 
     private func stageLabel(_ id: String) -> String {
-        id.hasPrefix("reuse") ? tr("AI 修复（RE-USE）", "AI restoration (RE-USE)") : tr("转换采样率", "Converting sample rate")
+        if id.hasPrefix("reuse") { return tr("AI 修复（RE-USE）", "AI restoration (RE-USE)") }
+        if id.hasPrefix("lavasr") { return tr("高频增强（LavaSR）", "High-band enhancement (LavaSR)") }
+        return tr("转换采样率", "Converting sample rate")
     }
 
     /// Runs the AI stages for one session, reusing that session's cache.
     private func runPipeline(
         _ m: SessionManifest,
         progress: @escaping @MainActor (String, Double, TimeInterval?) -> Void
-    ) async throws -> (url: URL, descriptor: ModelDescriptor, seconds: TimeInterval) {
+    ) async throws -> (url: URL, revisions: [String: String], seconds: TimeInterval) {
         let (enhancer, descriptor) = try await enhancer(for: m.processing.reuseVariant)
-        let pipeline = ProcessingPipeline(
-            stages: [ReuseStage(enhancer: enhancer, variantID: descriptor.id, revision: descriptor.revision),
-                     ResampleStage()],
-            workspace: Workspace(cacheRoot: cacheRoot, sessionID: m.id))
+        var stages: [any AudioStage] = [
+            ReuseStage(enhancer: enhancer, variantID: descriptor.id, revision: descriptor.revision),
+            ResampleStage(),
+        ]
+        var revisions = [descriptor.id: descriptor.revision]
+        if m.processing.highBandEnabled {
+            progress(tr("准备高频增强模型", "Preparing the high-band model"), 0, nil)
+            let lava = try await lavaEnhancer()
+            // Band-limited imports: generate everything above their Nyquist.
+            let cutoff = m.processing.highBandCutoff.hertz
+                ?? (m.original.sampleRate < AudioCore.sampleRate ? Double(m.original.sampleRate) / 2 : nil)
+            stages.append(LavaStage(enhancer: lava, revision: ModelCatalog.lavaSR.revision, cutoffHz: cutoff))
+            revisions[ModelCatalog.lavaSR.id] = ModelCatalog.lavaSR.revision
+        }
+        let pipeline = ProcessingPipeline(stages: stages, workspace: Workspace(cacheRoot: cacheRoot, sessionID: m.id))
         let started = Date()
         let result = try await pipeline.run(original: store.originalURL(for: m)) { p in
             let elapsed = Double(p.elapsed.components.seconds)
@@ -367,7 +390,7 @@ final class AppModel: ObservableObject {
             let id = p.stageID
             Task { @MainActor in progress(self.stageLabel(id), overall, remaining) }
         }
-        return (result.url, descriptor, Date().timeIntervalSince(started))
+        return (result.url, revisions, Date().timeIntervalSince(started))
     }
 
     func process() {
@@ -385,7 +408,7 @@ final class AppModel: ObservableObject {
                 guard selectedID == m.id else { return }
                 processedURL = result.url
                 lastProcessingSeconds = result.seconds
-                lastRevisions = [result.descriptor.id: result.descriptor.revision]
+                lastRevisions = result.revisions
                 reloadPreview(m, processed: result.url, show: .processed)
                 processing = .done
                 refreshLoudnessGain()
@@ -580,7 +603,7 @@ final class AppModel: ObservableObject {
                     batch?.stage = tr("母带处理并导出", "Mastering and exporting")
                     batch?.fraction = 0.9
                     let (_, url) = try await renderAndExport(m, processed: result.url, seconds: result.seconds,
-                                                             revisions: [result.descriptor.id: result.descriptor.revision])
+                                                             revisions: result.revisions)
                     exported.append(url)
                 } catch is CancellationError {
                     break

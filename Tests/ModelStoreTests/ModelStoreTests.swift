@@ -105,4 +105,24 @@ final class ModelStoreTests: XCTestCase {
         XCTAssertEqual(ModelCatalog.reuseLaughter.sha256,
                        "35c2a4e284515275d2e49a8e8cb5cd392ae67a1f1d345de1c12a0202c7b6b610")
     }
+
+    func testAsIsModelIsInstalledByteForByte() async throws {
+        let source = try fixture(bytes: 4096)
+        let digest = SHA256.hash(data: try Data(contentsOf: source)).map { String(format: "%02x", $0) }.joined()
+        let descriptor = ModelDescriptor(id: "test-asis", repo: "owner/repo", revision: "abc", file: "sub/model.safetensors",
+                                         sha256: digest, byteCount: 4096, licenseResource: "Apache-2.0-LavaSR.txt",
+                                         format: .asIs)
+        let store = ModelStore(root: root, downloader: FakeDownloader(source: source))
+        let url = try await store.install(descriptor) { _ in }
+        XCTAssertEqual(url.lastPathComponent, "model.safetensors")
+        XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: source))
+        let installed = await store.installedWeightsURL(descriptor)
+        XCTAssertEqual(installed, url)
+    }
+
+    func testCatalogPinsLavaSRMirror() {
+        XCTAssertEqual(ModelCatalog.lavaSR.sourceURL.absoluteString,
+                       "https://huggingface.co/AEmotionStudio/lavasr-models/resolve/291b7810dcd42e111b114fcc6cf07d0d021b9bea/enhancer_v2/model.safetensors")
+        XCTAssertEqual(ModelCatalog.lavaSR.format, .asIs)
+    }
 }

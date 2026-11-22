@@ -245,6 +245,26 @@ private struct ProcessPanel: View {
                     .disabled(model.isBusy || (model.modelState != .ready && model.modelState != .notInstalled))
                 }
             }
+            HStack(spacing: 12) {
+                Toggle("高频增强（LavaSR）", isOn: Binding(
+                    get: { manifest.processing.highBandEnabled },
+                    set: { v in model.updateSelected { $0.processing.highBandEnabled = v } }))
+                    .toggleStyle(.switch)
+                Picker("起始频率", selection: Binding(
+                    get: { manifest.processing.highBandCutoff },
+                    set: { c in model.updateSelected { $0.processing.highBandCutoff = c } })) {
+                    Text("自动").tag(HighBandCutoff.auto)
+                    Text(verbatim: "8 kHz").tag(HighBandCutoff.hz8000)
+                    Text(verbatim: "12 kHz").tag(HighBandCutoff.hz12000)
+                    Text(verbatim: "16 kHz").tag(HighBandCutoff.hz16000)
+                }
+                .frame(width: 200)
+                .disabled(!manifest.processing.highBandEnabled)
+                Spacer()
+            }
+            Text("在 AI 修复之后重新生成起始频率以上的高频，让声音更通透；低于起始频率的部分保持不变。“自动”按录音实际带宽决定。首次使用会下载约 56 MB 的模型。")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             switch model.processing {
             case .idle:
                 if manifest.lastExport != nil, let estimate = model.estimatedProcessingSeconds {
