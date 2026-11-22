@@ -116,7 +116,8 @@ private struct StepBar: View {
 
     private func done(_ s: WorkflowStep) -> Bool {
         switch s {
-        case .restore: model.processedURL != nil || model.selected?.lastExport != nil
+        // Only while the processed audio matches the current AI settings.
+        case .restore: model.processedURL != nil && model.processedSettings == model.selected?.processing
         case .master: false
         case .export: model.processedURL == nil && model.selected?.lastExport != nil
         }

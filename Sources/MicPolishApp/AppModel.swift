@@ -60,6 +60,8 @@ final class AppModel: ObservableObject {
     @Published var modelState: ModelState = .checking
     @Published var processing: ProcessingState = .idle
     @Published var processedURL: URL?
+    /// The AI settings `processedURL` was produced with.
+    @Published private(set) var processedSettings: ProcessingSettings?
     @Published var exportMessage: String?
     @Published var errorMessage: String?
     @Published var workspaceBytes: Int64 = 0
@@ -453,6 +455,7 @@ final class AppModel: ObservableObject {
                 // touch the UI if the user is still on that session.
                 guard selectedID == m.id else { return }
                 processedURL = result.url
+                processedSettings = m.processing
                 lastProcessingSeconds = result.seconds
                 lastRevisions = result.revisions
                 reloadPreview(m, processed: result.url, show: .processed)
