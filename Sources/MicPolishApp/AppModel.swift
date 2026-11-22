@@ -320,6 +320,7 @@ final class AppModel: ObservableObject {
         if let previous { try? FileManager.default.removeItem(at: previewScratch(for: previous)) }
         guard let m = selected else { return }
         preview.setMastering(m.mastering, loudnessGainDB: 0)
+        preview.setRange(start: m.trim?.start, end: m.trim?.end)
         reloadPreview(m, processed: nil)
         workspaceBytes = Workspace.totalDiskUsage(cacheRoot: cacheRoot)
         Task { await checkModel() }
@@ -470,20 +471,58 @@ final class AppModel: ObservableObject {
     /// Re-measures the loudness gain for the current settings in the
     /// background (debounced) and applies it to the live preview.
     private func refreshLoudnessGain() {
-        guard let processedURL, let settings = selected?.mastering, let id = selectedID else { return }
+        guard let processedURL, let m = selected, let id = selectedID else { return }
+        let settings = m.mastering
+        let workspace = Workspace(cacheRoot: cacheRoot, sessionID: id)
         gainTask?.cancel()
         gainWork?.cancel()
         gainTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             let work = Task.detached(priority: .utility) {
-                try MasteringRenderer.measureGain(input: processedURL, settings: settings).gainDB
+                try Self.withTrimmed(processedURL, trim: m.trim, in: workspace) {
+                    try MasteringRenderer.measureGain(input: $0, settings: settings).gainDB
+                }
             }
             gainWork = work
             guard let gain = try? await work.value, !Task.isCancelled, selectedID == id else { return }
             currentGain = gain
             preview.setMastering(settings, loudnessGainDB: gain)
         }
+    }
+
+    // MARK: Trim
+
+    /// Sets the kept span; a span covering the whole recording clears the trim.
+    func setTrim(_ trim: TrimRange?) {
+        guard let m = selected else { return }
+        let duration = m.original.durationSeconds
+        var kept = trim.map { TrimRange(start: max(0, $0.start), end: min(duration, $0.end)) }
+        if let k = kept, k.start <= 0.001, k.end >= duration - 0.001 { kept = nil }
+        if let k = kept, k.duration < 0.1 { return }
+        updateSelected { $0.trim = kept }
+        preview.setRange(start: kept?.start, end: kept?.end)
+        refreshLoudnessGain()
+    }
+
+    /// Trims leading and trailing silence, judged on the processed audio when
+    /// there is one (its noise floor is lower), else the original.
+    func autoTrim() {
+        guard let envelope = preview.envelopes[.processed] ?? preview.envelopes[.original],
+              let range = AudioTrim.detectSoundRange(envelope: envelope, bucketSeconds: 0.05) else { return }
+        setTrim(TrimRange(start: range.start, end: range.end))
+    }
+
+    /// Runs `body` on `processed` cut to `trim` (a temporary file in the
+    /// session workspace), or on `processed` itself when there is no trim.
+    nonisolated static func withTrimmed<T>(_ processed: URL, trim: TrimRange?, in workspace: Workspace,
+                                           _ body: (URL) throws -> T) throws -> T {
+        guard let trim else { return try body(processed) }
+        try workspace.create()
+        let cut = workspace.directory.appendingPathComponent("trimmed-\(UUID().uuidString).caf")
+        defer { try? FileManager.default.removeItem(at: cut) }
+        try AudioTrim.write(processed, from: trim.start, to: trim.end, output: cut)
+        return try body(cut)
     }
 
     // MARK: Export
@@ -523,7 +562,9 @@ final class AppModel: ObservableObject {
             let mastered = workspace.directory.appendingPathComponent("mastered-\(UUID().uuidString).caf")
             defer { try? FileManager.default.removeItem(at: mastered) }
             let writer = try MonoFileWriter(url: mastered, sampleRate: AudioCore.sampleRate, format: .cafFloat32)
-            try MasteringRenderer.render(input: processed, settings: mastering, output: writer)
+            try Self.withTrimmed(processed, trim: m.trim, in: workspace) {
+                try MasteringRenderer.render(input: $0, settings: mastering, output: writer)
+            }
             try writer.close()
             try Exporter.export(from: try MonoFileReader(url: mastered), options: options, to: destination)
         }.value

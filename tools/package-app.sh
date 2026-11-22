@@ -18,6 +18,15 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Framewor
 
 cp "$bin/MicPolishApp" "$app/Contents/MacOS/MicPolish"
 cp Config/Info.plist "$app/Contents/Info.plist"
+# App icon: every size iconutil expects, from the 1024 px master.
+iconset="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$iconset"
+for size in 16 32 128 256 512; do
+  sips -z $size $size Config/AppIcon.png --out "$iconset/icon_${size}x${size}.png" >/dev/null
+  sips -z $((size * 2)) $((size * 2)) Config/AppIcon.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+rm -rf "$(dirname "$iconset")"
 # SwiftPM resource bundles (model licenses, localizations) sit beside the binary.
 for bundle in "$bin"/*.bundle; do
   [[ -d "$bundle" ]] && cp -R "$bundle" "$app/Contents/Resources/"
@@ -63,8 +72,11 @@ codesign --force --sign - "$app/Contents/MacOS/mlx.metallib"
 codesign --force --sign - --entitlements Config/MicPolish.entitlements "$app"
 codesign --verify --deep --strict "$app"
 
+# A running copy resolves resources (mlx.metallib, localizations) by bundle path,
+# so never replace the bundle under it.
 if pgrep -f "$root/$final/Contents/MacOS/MicPolish" >/dev/null; then
-  echo "note: MicPolish is running from $final; quit and reopen it to use the new build" >&2
+  echo "MicPolish is running from $final; quit it and rerun this script. New build left in $app" >&2
+  exit 1
 fi
 rm -rf "$final"
 mv "$app" "$final"

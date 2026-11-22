@@ -60,6 +60,25 @@ final class PreviewTests: XCTestCase {
         XCTAssertLessThanOrEqual(maxDiff, 1e-6)
     }
 
+    func testTrimRangeStartsAtTrimStartAndSilencesPastTheEnd() async throws {
+        // Sample value encodes its index, so the rendered audio shows where playback was.
+        let original = (0..<(4 * 48_000)).map { Float($0) / Float(4 * 48_000) }
+        let player = PreviewPlayer()
+        try player.enableManualRendering()
+        try await player.load(original: try write("o.caf", original), processed: nil, scratchDirectory: scratch)
+        player.setRange(start: 1, end: 2)
+        XCTAssertEqual(player.position, 1)
+        player.seek(to: 3.5)                                   // past the end clamps to it
+        XCTAssertEqual(player.position, 2)
+        player.play()                                          // at the end: restarts at the trim start
+        let gain = player.state.withLock { player.state.originalGain }
+        let rendered = try player.renderManually(frames: 2 * 48_000)
+        XCTAssertEqual(rendered[0] / gain, original[48_000], accuracy: 1e-6)
+        XCTAssertEqual(rendered[48_000 - 1] / gain, original[2 * 48_000 - 1], accuracy: 1e-6)
+        XCTAssertTrue(rendered[48_000...].allSatisfy { $0 == 0 })
+        XCTAssertFalse(player.state.withLock { player.state.playing })
+    }
+
     func testSwitchingSourceKeepsPosition() async throws {
         let original = [Float](repeating: 0.1, count: 4 * 48_000)
         let processed = [Float](repeating: 0.2, count: 4 * 48_000)

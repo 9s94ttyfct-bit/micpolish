@@ -116,14 +116,20 @@ private struct PreviewPanel: View {
                 SourceTab(source: .processed, title: "AI 处理后", subtitle: "RE-USE 去噪去混响，未做母带", icon: "sparkles")
                 SourceTab(source: .mastered, title: "成品", subtitle: "AI + 母带处理，导出的就是它", icon: "checkmark.seal")
             }
-            WaveformView(
-                envelope: preview.envelopes[preview.source == .original ? .original : .processed] ?? preview.envelopes[.original] ?? [],
-                progress: preview.duration > 0 ? preview.position / preview.duration : 0,
-                tint: preview.source == .original ? .secondary : .accentColor
-            ) { fraction in
-                preview.seek(to: fraction * preview.duration)
+            ZStack {
+                WaveformView(
+                    envelope: preview.envelopes[preview.source == .original ? .original : .processed] ?? preview.envelopes[.original] ?? [],
+                    progress: preview.duration > 0 ? preview.position / preview.duration : 0,
+                    tint: preview.source == .original ? .secondary : .accentColor
+                ) { fraction in
+                    preview.seek(to: fraction * preview.duration)
+                }
+                if let m = model.selected, preview.duration > 0 {
+                    TrimOverlay(duration: preview.duration, trim: m.trim) { model.setTrim($0) }
+                }
             }
             .frame(height: 70)
+            TrimBar()
             HStack {
                 Button {
                     preview.isPlaying ? preview.pause() : preview.play()
@@ -177,6 +183,114 @@ private struct SourceTab: View {
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.45)
         .accessibilityLabel(title)
+    }
+}
+
+/// Dims the trimmed-off head and tail of the waveform and offers a draggable
+/// handle at each end of the kept span.
+private struct TrimOverlay: View {
+    let duration: Double
+    let trim: TrimRange?
+    let commit: (TrimRange) -> Void
+    @State private var live: TrimRange?
+
+    private static let minimumSeconds = 0.1
+    private static let step = 0.1
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let range = live ?? trim ?? TrimRange(start: 0, end: duration)
+            let x0 = CGFloat(range.start / duration) * width
+            let x1 = CGFloat(range.end / duration) * width
+            let shade = Color(nsColor: .controlBackgroundColor).opacity(0.75)
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(shade).frame(width: max(0, x0)).allowsHitTesting(false)
+                Rectangle().fill(shade).frame(width: max(0, width - x1)).offset(x: x1).allowsHitTesting(false)
+                handle(x: x0, width: width, height: geo.size.height, label: "裁剪起点", value: range.start) { seconds in
+                    TrimRange(start: max(0, min(seconds, range.end - Self.minimumSeconds)), end: range.end)
+                }
+                handle(x: x1, width: width, height: geo.size.height, label: "裁剪终点", value: range.end) { seconds in
+                    TrimRange(start: range.start, end: min(duration, max(seconds, range.start + Self.minimumSeconds)))
+                }
+            }
+            .coordinateSpace(name: "trim")
+            .frame(width: width, height: geo.size.height, alignment: .topLeading)
+        }
+    }
+
+    private func handle(x: CGFloat, width: CGFloat, height: CGFloat, label: LocalizedStringKey, value: Double,
+                        moved: @escaping (Double) -> TrimRange) -> some View {
+        TrimHandle(height: height)
+            .offset(x: x - 8)
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .named("trim"))
+                    .onChanged { drag in
+                        let fraction = width > 0 ? Double(drag.location.x / width) : 0
+                        live = moved(max(0, min(duration, fraction * duration)))
+                    }
+                    .onEnded { _ in
+                        if let live { commit(live) }
+                        live = nil
+                    }
+            )
+            .accessibilityElement()
+            .accessibilityLabel(label)
+            .accessibilityValue(Text(verbatim: TrimBar.time(value)))
+            .accessibilityAdjustableAction { direction in
+                commit(moved(value + (direction == .increment ? Self.step : -Self.step)))
+            }
+    }
+}
+
+private struct TrimHandle: View {
+    let height: CGFloat
+
+    var body: some View {
+        ZStack {
+            Capsule().fill(Color.yellow).frame(width: 5, height: height)
+            Capsule().fill(Color.black.opacity(0.35)).frame(width: 1.5, height: 14)
+        }
+        .frame(width: 16, height: height)
+        .contentShape(Rectangle())
+        .onHover { inside in
+            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+/// The kept span and the quick-trim actions under the waveform.
+private struct TrimBar: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        if let m = model.selected {
+            HStack(spacing: 10) {
+                Image(systemName: "scissors").foregroundStyle(.secondary)
+                if let trim = m.trim {
+                    Text(verbatim: model.tr("保留 \(Self.time(trim.start)) – \(Self.time(trim.end))（\(Self.time(trim.duration))）",
+                                            "Keeping \(Self.time(trim.start)) – \(Self.time(trim.end)) (\(Self.time(trim.duration)))"))
+                        .monospacedDigit()
+                } else {
+                    Text("拖动波形两端的黄色手柄裁掉开头和结尾")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { model.autoTrim() } label: { Label("自动去首尾静音", systemImage: "wand.and.stars") }
+                    .help("把开头和结尾的静音裁掉，两端各留 0.25 秒")
+                Button { model.setTrim(nil) } label: { Label("还原", systemImage: "arrow.uturn.backward") }
+                    .disabled(m.trim == nil)
+                    .help("取消裁剪，保留整段录音")
+            }
+            .font(.callout)
+            .controlSize(.small)
+        }
+    }
+
+    /// `m:ss.t`
+    static func time(_ seconds: Double) -> String {
+        let tenths = Int((max(0, seconds) * 10).rounded())
+        return String(format: "%d:%02d.%d", tenths / 600, (tenths / 10) % 60, tenths % 10)
     }
 }
 

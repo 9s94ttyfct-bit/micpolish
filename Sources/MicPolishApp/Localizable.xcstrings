@@ -1161,6 +1161,77 @@
           }
         }
       }
+    },
+    "拖动波形两端的黄色手柄裁掉开头和结尾": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag the yellow handles at either end of the waveform to trim the start and end"
+          }
+        }
+      }
+    },
+    "自动去首尾静音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trim Silence"
+          }
+        }
+      }
+    },
+    "把开头和结尾的静音裁掉，两端各留 0.25 秒": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removes silence at the start and end, keeping 0.25 s on each side"
+          }
+        }
+      }
+    },
+    "还原": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        }
+      }
+    },
+    "取消裁剪，保留整段录音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove the trim and keep the whole recording"
+          }
+        }
+      }
+    },
+    "裁剪起点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trim start"
+          }
+        }
+      }
+    },
+    "裁剪终点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trim end"
+          }
+        }
+      }
     }
   }
 }
+

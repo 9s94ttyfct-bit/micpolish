@@ -71,6 +71,20 @@ public struct ExportRecord: Codable, Equatable, Sendable {
     }
 }
 
+/// The kept span of a recording, in seconds on the original's timeline.
+/// The original file is never modified.
+public struct TrimRange: Codable, Equatable, Sendable {
+    public var start: Double
+    public var end: Double
+
+    public init(start: Double, end: Double) {
+        self.start = start
+        self.end = end
+    }
+
+    public var duration: Double { max(0, end - start) }
+}
+
 /// `session.json`: everything needed to reproduce the export from the
 /// original audio.
 public struct SessionManifest: Codable, Equatable, Sendable, Identifiable {
@@ -82,6 +96,8 @@ public struct SessionManifest: Codable, Equatable, Sendable, Identifiable {
     public var mastering = MasteringSettings.default
     public var export = ExportOptions()
     public var lastExport: ExportRecord?
+    /// Head/tail trim applied after AI processing; nil keeps everything.
+    public var trim: TrimRange?
 
     init(id: UUID, name: String, createdAt: Date, original: OriginalAudio) {
         self.id = id
@@ -100,5 +116,6 @@ public struct SessionManifest: Codable, Equatable, Sendable, Identifiable {
         mastering = try c.decodeIfPresent(MasteringSettings.self, forKey: .mastering) ?? .default
         export = try c.decodeIfPresent(ExportOptions.self, forKey: .export) ?? ExportOptions()
         lastExport = try c.decodeIfPresent(ExportRecord.self, forKey: .lastExport)
+        trim = try c.decodeIfPresent(TrimRange.self, forKey: .trim)
     }
 }

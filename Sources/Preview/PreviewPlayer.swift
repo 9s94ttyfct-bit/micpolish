@@ -49,6 +49,9 @@ final class PreviewState: @unchecked Sendable {
     var originalGain: Float = 1
     var processedGain: Float = 1
     var masteredGain: Float = 1
+    /// Playable span (trim) in frames; `rangeEnd` nil plays to the end.
+    var rangeStart = 0
+    var rangeEnd: Int?
     private var scratch = [Float](repeating: 0, count: 16_384)
 
     init(chain: MasteringChain) {
@@ -62,6 +65,12 @@ final class PreviewState: @unchecked Sendable {
     }
 
     var length: Int { max(original?.count ?? 0, processed?.count ?? 0) }
+    var playableEnd: Int { min(length, rangeEnd ?? length) }
+
+    /// Puts the play head inside the playable span.
+    func clampToRange() {
+        if position < rangeStart || position >= playableEnd { position = min(rangeStart, length); primeChain() }
+    }
 
     /// The signal the mastering chain runs on: processed audio, or the
     /// original while nothing has been processed.
@@ -107,8 +116,11 @@ final class PreviewState: @unchecked Sendable {
                 for i in 0..<frames { out[i] = block[i] * masteredGain }
             }
         }
+        // Silence whatever lies past the end of the playable span.
+        let audible = max(0, min(frames, playableEnd - position))
+        if audible < frames { out.advanced(by: audible).update(repeating: 0, count: frames - audible) }
         position += frames
-        if position >= length { playing = false }
+        if position >= playableEnd { playing = false }
     }
 
     @inline(__always)
@@ -196,10 +208,11 @@ public final class PreviewPlayer: ObservableObject {
             state.processed = processedSignal
             state.position = 0
             state.playing = false
+            state.clampToRange()
             state.primeChain()
         }
         duration = Double(state.length) / Double(AudioCore.sampleRate)
-        position = 0
+        position = Double(state.withLock { state.position }) / Double(AudioCore.sampleRate)
         isPlaying = false
         // Without a processed signal only the original is meaningful.
         if processed == nil { source = .original }
@@ -233,7 +246,7 @@ public final class PreviewPlayer: ObservableObject {
             }
         }
         state.withLock {
-            if state.position >= state.length { state.position = 0; state.primeChain() }
+            state.clampToRange()
             state.playing = true
         }
         isPlaying = true
@@ -251,11 +264,24 @@ public final class PreviewPlayer: ObservableObject {
         syncFromState()
     }
 
+    /// Moves the play head, kept inside the trim range.
     public func seek(to time: TimeInterval) {
-        let frame = max(0, min(state.length, Int(time * Double(AudioCore.sampleRate))))
-        state.withLock {
-            state.position = frame
+        let frame = state.withLock {
+            state.position = max(state.rangeStart, min(state.playableEnd, Int(time * Double(AudioCore.sampleRate))))
             state.primeChain()
+            return state.position
+        }
+        position = Double(frame) / Double(AudioCore.sampleRate)
+    }
+
+    /// Limits playback to `[start, end)` seconds (the trim); nil plays everything.
+    public func setRange(start: TimeInterval?, end: TimeInterval?) {
+        let rate = Double(AudioCore.sampleRate)
+        let frame = state.withLock {
+            state.rangeStart = max(0, Int(((start ?? 0) * rate).rounded()))
+            state.rangeEnd = end.map { Int(($0 * rate).rounded()) }
+            if !state.playing { state.clampToRange() }
+            return state.position
         }
         position = Double(frame) / Double(AudioCore.sampleRate)
     }

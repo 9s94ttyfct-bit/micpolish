@@ -16,6 +16,11 @@ public final class MonoFileReader {
         buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 1)!
     }
 
+    /// Moves the read position to `frame` (clamped to the file).
+    public func seek(toFrame frame: Int64) {
+        file.framePosition = max(0, min(file.length, frame))
+    }
+
     /// Returns up to `maxFrames` frames, or nil at end of file.
     /// AVAudioFile may return short reads, so this keeps reading until the
     /// request is satisfied or the file ends.
