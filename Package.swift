@@ -15,6 +15,7 @@ let package = Package(
         .library(name: "ModelStore", targets: ["ModelStore"]),
         .library(name: "Mastering", targets: ["Mastering"]),
         .library(name: "Export", targets: ["Export"]),
+        .library(name: "Sessions", targets: ["Sessions"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
@@ -53,10 +54,12 @@ let package = Package(
                 .unsafeFlags(["-L\(lameLib)", "-Xlinker", "-rpath", "-Xlinker", lameLib]),
             ]
         ),
+        .target(name: "Sessions", dependencies: ["AudioCore", "Mastering", "Export"]),
         .testTarget(name: "AudioCoreTests", dependencies: ["AudioCore"]),
         .testTarget(name: "ReuseMLXTests", dependencies: ["ReuseMLX"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(name: "MasteringTests", dependencies: ["Mastering", "AudioCore"]),
         .testTarget(name: "ExportTests", dependencies: ["Export", "AudioCore"]),
+        .testTarget(name: "SessionsTests", dependencies: ["Sessions", "AudioCore", "Export"]),
     ]
 )
