@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "Export", targets: ["Export"]),
         .library(name: "Sessions", targets: ["Sessions"]),
         .library(name: "Pipeline", targets: ["Pipeline"]),
+        .executable(name: "micpolish", targets: ["micpolish"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
@@ -57,6 +58,13 @@ let package = Package(
         ),
         .target(name: "Sessions", dependencies: ["AudioCore", "Mastering", "Export"]),
         .target(name: "Pipeline", dependencies: ["AudioCore", "ReuseMLX", "Sessions"]),
+        .executableTarget(
+            name: "micpolish",
+            dependencies: [
+                "AudioCore", "ReuseMLX", "ModelStore", "Mastering", "Export", "Sessions", "Pipeline",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ]
+        ),
         .testTarget(name: "AudioCoreTests", dependencies: ["AudioCore"]),
         .testTarget(name: "ReuseMLXTests", dependencies: ["ReuseMLX"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),

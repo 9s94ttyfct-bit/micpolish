@@ -85,6 +85,17 @@ final class MasteringChainTests: XCTestCase {
         XCTAssertLessThanOrEqual(result.report.outputTruePeakDBTP, -1.0)
     }
 
+    func testRenderHitsTargetWhenLimiterEngages() throws {
+        // Clicks give the signal a high crest factor, so the limiter removes
+        // loudness after the gain; the renderer must compensate.
+        var input = TestSignals.modulatedNoise(seconds: 12, rmsDB: -30, seed: 11)
+        for i in stride(from: 500, to: input.count, by: 4_801) { input[i] = 0.6 }
+        let result = try render(input, settings: .default)
+        print("limited render report:", result.report)
+        XCTAssertEqual(try XCTUnwrap(result.report.outputLUFS), -16, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(result.report.outputTruePeakDBTP, -1.0)
+    }
+
     func testSilenceProducesSilenceWithoutGain() throws {
         let result = try render([Float](repeating: 0, count: 48_000), settings: .default)
         XCTAssertEqual(result.report.appliedGainDB, 0)
