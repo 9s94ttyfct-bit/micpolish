@@ -86,6 +86,8 @@ struct Process: AsyncParsableCommand {
     @Option(help: "Model variant.") var variant: Variant = .reuseNemotron
     @Option(help: "LavaSR high-band enhancement: off, auto, or a start frequency in Hz.") var highBand = "off"
     @Flag(help: "Run Inworld Voice Isolator before RE-USE (heavy background noise).") var strongDenoise = false
+    @Option(help: "RE-USE backend: mlx, or ane (Core ML encoder/decoders on the Neural Engine; needs tools/coreml packages).")
+    var backend: ReuseBackend = .mlx
 
     func validate() throws {
         guard highBand == "off" || highBand == "auto" || Double(highBand) != nil else {
@@ -105,7 +107,11 @@ struct Process: AsyncParsableCommand {
         let format = ExportFormat(rawValue: outputURL.pathExtension.lowercased())!
 
         let weights = try await installModel(variant.descriptor)
-        let enhancer = try MambaEnhancer(modelWeightsURL: weights)
+        let accelerator = backend == .aneHybrid
+            ? try ReuseANEAccelerator(packageDirectory: ReuseANEAccelerator.packageDirectory(
+                modelsRoot: ModelStore.defaultRoot, modelID: variant.descriptor.id, revision: variant.descriptor.revision))
+            : nil
+        let enhancer = try MambaEnhancer(modelWeightsURL: weights, accelerator: accelerator)
 
         let sessionRoot = FileManager.default.temporaryDirectory.appendingPathComponent("micpolish-cli-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: sessionRoot) }
@@ -117,7 +123,10 @@ struct Process: AsyncParsableCommand {
         let clock = ContinuousClock()
         let aiStart = clock.now
         var stages: [any AudioStage] = [
-            ReuseStage(enhancer: enhancer, variantID: variant.rawValue, revision: variant.descriptor.revision),
+            ReuseStage(enhancer: enhancer, variantID: variant.rawValue, revision: variant.descriptor.revision,
+                       backend: backend) { usage in
+                print("RE-USE windows: \(usage.aneHybridWindows) ANE hybrid, \(usage.mlxWindows) MLX")
+            },
             ResampleStage(),
         ]
         if strongDenoise {
@@ -152,6 +161,16 @@ struct Process: AsyncParsableCommand {
         print(String(format: "Output: %@ LUFS, true peak %.2f dBTP",
                      report.outputLUFS.map { String(format: "%.1f", $0) } ?? "n/a", report.outputTruePeakDBTP))
         print("Wrote \(outputURL.path)")
+    }
+}
+
+extension ReuseBackend: ExpressibleByArgument {
+    public init?(argument: String) {
+        switch argument {
+        case "mlx": self = .mlx
+        case "ane", "aneHybrid": self = .aneHybrid
+        default: return nil
+        }
     }
 }
 

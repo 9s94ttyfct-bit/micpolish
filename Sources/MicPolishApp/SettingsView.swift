@@ -39,9 +39,40 @@ struct SettingsView: View {
                     }
                 }
             }
+            Section("处理后端") {
+                Picker("RE-USE 后端", selection: $model.backendPreference) {
+                    Text("自动").tag(BackendPreference.auto)
+                    Text(verbatim: "MLX GPU").tag(BackendPreference.mlx)
+                    Text("ANE 混合（神经引擎 + GPU）").tag(BackendPreference.aneHybrid)
+                }
+                .disabled(!model.aneAvailable())
+                if !model.aneAvailable() {
+                    Text("未安装 Core ML 包，只能用 MLX GPU。开发版用 tools/coreml/export_reuse_coreml.py 导出安装。")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    HStack {
+                        if let t = model.speedTest {
+                            Text(verbatim: model.tr(
+                                "本机测速：MLX \(String(format: "%.2f", t.mlxRTF)) · ANE 混合 \(String(format: "%.2f", t.aneRTF))（RTF，\(String(format: "%+.0f%%", -t.gain * 100))）→ 自动选择 \(t.aneWins ? "ANE 混合" : "MLX GPU")",
+                                "This Mac: MLX \(String(format: "%.2f", t.mlxRTF)) · ANE hybrid \(String(format: "%.2f", t.aneRTF)) (RTF, \(String(format: "%+.0f%%", -t.gain * 100))) → automatic picks \(t.aneWins ? "ANE hybrid" : "MLX GPU")"))
+                                .font(.caption)
+                        } else {
+                            Text("还没测速；“自动”暂时使用 MLX GPU。").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let p = model.speedTestProgress {
+                            ProgressView(value: p).frame(width: 80)
+                        } else {
+                            Button("测速（约 1.5 分钟）") { model.runSpeedTest() }.disabled(model.isBusy)
+                        }
+                    }
+                }
+                Text(verbatim: model.tr("上次处理使用：\(model.lastBackendLabel)", "Last run used: \(model.lastBackendLabel)"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 320)
+        .frame(width: 560, height: 520)
         .task { await reload() }
     }
 

@@ -477,10 +477,14 @@ private struct ProcessPanel: View {
                 ProgressView(value: fraction) {
                     Text(verbatim: stage)
                 } currentValueLabel: {
-                    Text(verbatim: remaining.map { model.tr("MLX GPU · 剩余约 \(Int($0.rounded())) 秒", "MLX GPU · about \(Int($0.rounded())) s left") } ?? "MLX GPU")
+                    let backend = model.lastBackendLabel
+                    Text(verbatim: remaining.map { model.tr("\(backend) · 剩余约 \(Int($0.rounded())) 秒", "\(backend) · about \(Int($0.rounded())) s left") } ?? backend)
                 }
             case .done:
-                Label("处理完成", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Label {
+                    Text(verbatim: model.tr("处理完成 · \(model.lastBackendLabel)", "Processing complete · \(model.lastBackendLabel)"))
+                } icon: { Image(systemName: "checkmark.circle.fill") }
+                .foregroundStyle(.green)
             case .failed(let message):
                 Text(verbatim: model.tr("处理失败：\(message)", "Processing failed: \(message)")).foregroundStyle(.red)
             }

@@ -110,7 +110,16 @@ final class AppModel: ObservableObject {
     private var currentGain: Double = 0
     private var lastProcessingSeconds: TimeInterval = 0
     private var lastRevisions: [String: String] = [:]
-    private let backend = "MLX GPU"
+    /// Backend of the RE-USE stage in the last run, for display and export records.
+    @Published private(set) var lastBackendLabel = "MLX GPU"
+    @Published var backendPreference: BackendPreference =
+        BackendPreference(rawValue: UserDefaults.standard.string(forKey: "reuseBackend") ?? "") ?? .auto {
+        didSet { UserDefaults.standard.set(backendPreference.rawValue, forKey: "reuseBackend") }
+    }
+    /// This Mac's last speed test of both backends (set by `runSpeedTest`).
+    @Published var speedTest: SpeedTestResult? = SpeedTestResult.load()
+    /// Progress of a running speed test (0...1), nil when none runs.
+    @Published var speedTestProgress: Double?
 
     init() {
         let root = Self.dataRootOverride?.appendingPathComponent("sessions", isDirectory: true)
@@ -215,13 +224,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func enhancer(for variant: String) async throws -> (MambaEnhancer, ModelDescriptor) {
+    private func enhancer(for variant: String) async throws -> (MambaEnhancer, ModelDescriptor, ReuseBackend) {
         let descriptor = ModelCatalog.descriptor(id: variant) ?? ModelCatalog.reuse
-        if let cached = enhancers[descriptor.id] { return (cached, descriptor) }
+        let wanted = resolvedBackend(for: descriptor)
+        let key = descriptor.id + (wanted == .aneHybrid ? "|ane" : "")
+        if let cached = enhancers[key] { return (cached, descriptor, cached.accelerator == nil ? .mlx : wanted) }
         let url = try await modelStore.install(descriptor) { _ in }
-        let enhancer = try MambaEnhancer(modelWeightsURL: url)
-        enhancers[descriptor.id] = enhancer
-        return (enhancer, descriptor)
+        // A package that fails to load (e.g. a newer macOS rejects it) quietly falls back to MLX.
+        let accelerator = wanted == .aneHybrid ? try? await accelerator(for: descriptor) : nil
+        let enhancer = try MambaEnhancer(modelWeightsURL: url, accelerator: accelerator)
+        enhancers[key] = enhancer
+        return (enhancer, descriptor, accelerator == nil ? .mlx : wanted)
     }
 
     private func lavaEnhancer() async throws -> LavaEnhancer {
@@ -374,7 +387,7 @@ final class AppModel: ObservableObject {
         return false
     }
 
-    var isBusy: Bool { isExporting || isProcessing || batch != nil }
+    var isBusy: Bool { isExporting || isProcessing || batch != nil || speedTestProgress != nil }
 
     private func stageLabel(_ id: String) -> String {
         if id.hasPrefix("inworld") { return tr("强降噪（Inworld）", "Strong noise removal (Inworld)") }
@@ -388,9 +401,12 @@ final class AppModel: ObservableObject {
         _ m: SessionManifest,
         progress: @escaping @MainActor (String, Double, TimeInterval?) -> Void
     ) async throws -> (url: URL, revisions: [String: String], seconds: TimeInterval) {
-        let (enhancer, descriptor) = try await enhancer(for: m.processing.reuseVariant)
+        let (enhancer, descriptor, backend) = try await enhancer(for: m.processing.reuseVariant)
+        lastBackendLabel = Self.label(for: backend)
         var stages: [any AudioStage] = [
-            ReuseStage(enhancer: enhancer, variantID: descriptor.id, revision: descriptor.revision),
+            ReuseStage(enhancer: enhancer, variantID: descriptor.id, revision: descriptor.revision, backend: backend) { usage in
+                Task { @MainActor in self.lastBackendLabel = Self.label(for: usage.backend) }
+            },
             ResampleStage(),
         ]
         var revisions = [descriptor.id: descriptor.revision]
@@ -598,7 +614,7 @@ final class AppModel: ObservableObject {
             try Exporter.export(from: try MonoFileReader(url: mastered), options: options, to: destination)
         }.value
         let record = ExportRecord(fileName: destination.lastPathComponent, exportedAt: Date(), modelRevisions: revisions,
-                                  backend: backend, processingSeconds: seconds,
+                                  backend: lastBackendLabel, processingSeconds: seconds,
                                   directory: external ? folder.path : nil)
         let updated = try store.recordExport(format: options.format, record: record, for: m)
         try workspace.purge()

@@ -64,3 +64,23 @@ NemotronLabs checkpoint (`tools/parity/reuse_reference.py`), both against a floa
 
 At 48 kHz the fixture is upsampled from 44.1 kHz, so bins above 22.05 kHz are nearly empty
 and their phase depends on float32 rounding in any implementation.
+
+## ANE hybrid backend (Plan 4)
+
+RE-USE's dense encoder and mask/phase decoders run as FP16 Core ML (`cpuAndNeuralEngine`); the
+30 Mamba layers stay in MLX. Release build, M4 Pro, macOS 27.3, 64 s of 48 kHz speech:
+
+| Backend | RTF | Peak footprint (`/usr/bin/time -l`) | Windows |
+| --- | ---: | ---: | --- |
+| MLX GPU (`micpolish process --backend mlx`) | 0.480 | 4.52 GB | 14 MLX |
+| ANE hybrid (`--backend ane`) | 0.407 | 4.27 GB | 13 ANE + 1 MLX (tail) |
+
+Subagent benchmark (median of 3 after warm-up): MLX 0.481, hybrid 0.405–0.429 (−10.8 % to
+−16.5 %). Quality vs MLX FP32: rel. RMSE 0.106 % (default) / 0.221 % (laughter). Per 5 s window
+the Mamba layers take ~1.75 s on the GPU; the encoder drops 310 → 187 ms and the decoders
+141 → 118 ms on the ANE, and Core ML work for neighbouring windows overlaps the GPU pass.
+MLComputePlan places every operation of both models on the Neural Engine.
+
+The packages are built at development time (`uv run tools/coreml/export_reuse_coreml.py --variant all`)
+and installed to `~/Library/Application Support/MicPolish/models/<model>-coreml/<revision>/`.
+"Automatic" uses the hybrid only if the in-app speed test (Settings) measured at least 15 % lower RTF.

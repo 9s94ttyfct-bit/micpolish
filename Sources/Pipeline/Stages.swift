@@ -13,13 +13,22 @@ public struct ReuseStage: AudioStage {
     public let settingsKey: String
     private let enhancer: MambaEnhancer
     private let settings: InferenceSettings
+    private let backend: ReuseBackend
+    private let onBackendUsage: (@Sendable (ReuseBackendUsage) -> Void)?
 
+    /// `backend` `.aneHybrid` needs an enhancer built with an accelerator; it
+    /// is part of the cache key because Core ML FP16 output differs slightly.
     public init(enhancer: MambaEnhancer, variantID: String, revision: String,
-                settings: InferenceSettings = ReuseStage.inferenceSettings) {
+                settings: InferenceSettings = ReuseStage.inferenceSettings, backend: ReuseBackend = .mlx,
+                onBackendUsage: (@Sendable (ReuseBackendUsage) -> Void)? = nil) {
         self.enhancer = enhancer
         self.settings = settings
+        let effective: ReuseBackend = enhancer.accelerator == nil ? .mlx : backend
+        self.backend = effective
+        self.onBackendUsage = onBackendUsage
         id = variantID
         settingsKey = "\(revision)|\(enhancer.mode.rawValue)|\(settings.chunkSeconds)|\(settings.overlapPortion)"
+            + (effective == .aneHybrid ? "|ane" : "")
     }
 
     public func outputSampleRate(forInput sampleRate: Int) -> Int { sampleRate }
@@ -27,7 +36,7 @@ public struct ReuseStage: AudioStage {
     public func run(input: StageIO, output: URL, progress: @Sendable (Double) -> Void) async throws {
         let reader = try MonoFileReader(url: input.url)
         let writer = try MonoFileWriter(url: output, sampleRate: input.sampleRate, format: .cafFloat32)
-        let session = try await enhancer.makeSession(sampleRate: input.sampleRate, settings: settings)
+        let session = try await enhancer.makeSession(sampleRate: input.sampleRate, settings: settings, backend: backend)
         let total = max(1, Double(reader.frameCount))
         var consumed = 0
         while let block = try reader.read(maxFrames: session.recommendedInputFrameCount) {
@@ -38,6 +47,7 @@ public struct ReuseStage: AudioStage {
         }
         try writer.append(try await session.finish())
         try writer.close()
+        onBackendUsage?(await session.backendUsage)
         progress(1)
     }
 }

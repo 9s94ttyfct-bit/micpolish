@@ -1281,6 +1281,66 @@
           }
         }
       }
+    },
+    "处理后端": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing Backend"
+          }
+        }
+      }
+    },
+    "RE-USE 后端": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RE-USE backend"
+          }
+        }
+      }
+    },
+    "ANE 混合（神经引擎 + GPU）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ANE hybrid (Neural Engine + GPU)"
+          }
+        }
+      }
+    },
+    "未安装 Core ML 包，只能用 MLX GPU。开发版用 tools/coreml/export_reuse_coreml.py 导出安装。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Core ML packages are not installed, so only MLX GPU is available. Development builds install them with tools/coreml/export_reuse_coreml.py."
+          }
+        }
+      }
+    },
+    "还没测速；“自动”暂时使用 MLX GPU。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not measured yet; Automatic uses MLX GPU for now."
+          }
+        }
+      }
+    },
+    "测速（约 1.5 分钟）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Measure Speed (about 1.5 min)"
+          }
+        }
+      }
     }
   }
 }
