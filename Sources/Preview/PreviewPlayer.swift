@@ -280,7 +280,8 @@ public final class PreviewPlayer: ObservableObject {
         let frame = state.withLock {
             state.rangeStart = max(0, Int(((start ?? 0) * rate).rounded()))
             state.rangeEnd = end.map { Int(($0 * rate).rounded()) }
-            if !state.playing { state.clampToRange() }
+            // Also while playing: a play head left outside the new span jumps into it.
+            state.clampToRange()
             return state.position
         }
         position = Double(frame) / Double(AudioCore.sampleRate)

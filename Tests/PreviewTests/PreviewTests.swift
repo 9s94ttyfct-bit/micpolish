@@ -79,6 +79,19 @@ final class PreviewTests: XCTestCase {
         XCTAssertFalse(player.state.withLock { player.state.playing })
     }
 
+    func testNarrowingTheRangeWhilePlayingJumpsIntoIt() async throws {
+        let original = (0..<(4 * 48_000)).map { Float($0) / Float(4 * 48_000) }
+        let player = PreviewPlayer()
+        try player.enableManualRendering()
+        try await player.load(original: try write("o.caf", original), processed: nil, scratchDirectory: scratch)
+        player.play()
+        _ = try player.renderManually(frames: 4096)
+        player.setRange(start: 2, end: 3)
+        let gain = player.state.withLock { player.state.originalGain }
+        let rendered = try player.renderManually(frames: 1024)
+        XCTAssertEqual(rendered[0] / gain, original[2 * 48_000], accuracy: 1e-6)
+    }
+
     func testSwitchingSourceKeepsPosition() async throws {
         let original = [Float](repeating: 0.1, count: 4 * 48_000)
         let processed = [Float](repeating: 0.2, count: 4 * 48_000)

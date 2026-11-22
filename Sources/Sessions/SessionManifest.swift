@@ -87,6 +87,14 @@ public struct TrimRange: Codable, Equatable, Sendable {
     }
 
     public var duration: Double { max(0, end - start) }
+
+    /// This range clamped to `[0, length]`; nil when nothing sensible is left
+    /// (non-finite or empty), so a hand-edited manifest cannot break playback or export.
+    public func clamped(toLength length: Double) -> TrimRange? {
+        guard start.isFinite, end.isFinite, length.isFinite else { return nil }
+        let kept = TrimRange(start: min(max(0, start), length), end: min(max(0, end), length))
+        return kept.end > kept.start ? kept : nil
+    }
 }
 
 /// `session.json`: everything needed to reproduce the export from the
@@ -120,6 +128,6 @@ public struct SessionManifest: Codable, Equatable, Sendable, Identifiable {
         mastering = try c.decodeIfPresent(MasteringSettings.self, forKey: .mastering) ?? .default
         export = try c.decodeIfPresent(ExportOptions.self, forKey: .export) ?? ExportOptions()
         lastExport = try c.decodeIfPresent(ExportRecord.self, forKey: .lastExport)
-        trim = try c.decodeIfPresent(TrimRange.self, forKey: .trim)
+        trim = try c.decodeIfPresent(TrimRange.self, forKey: .trim)?.clamped(toLength: original.durationSeconds)
     }
 }

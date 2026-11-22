@@ -86,6 +86,20 @@ final class SessionsTests: XCTestCase {
         XCTAssertNil(manifest.lastExport)
     }
 
+    func testHandEditedTrimIsClampedOrDropped() throws {
+        func decode(_ trim: String) throws -> TrimRange? {
+            let json = """
+            {"id":"8F2C7A10-1B2C-4D5E-8F90-123456789ABC","name":"old","createdAt":0,
+             "original":{"fileName":"original.flac","sampleRate":48000,"durationSeconds":3,"imported":false},
+             "trim":\(trim)}
+            """
+            return try JSONDecoder().decode(SessionManifest.self, from: Data(json.utf8)).trim
+        }
+        XCTAssertEqual(try decode(#"{"start":-5,"end":1e300}"#), TrimRange(start: 0, end: 3))
+        XCTAssertEqual(try decode(#"{"start":0.5,"end":2}"#), TrimRange(start: 0.5, end: 2))
+        XCTAssertNil(try decode(#"{"start":2,"end":1}"#))
+    }
+
     func testSameNameInSameMinuteGetsDistinctDirectories() throws {
         let store = SessionStore(root: root)
         let a = try store.importFile(try audioFile("a.flac"), name: "same")

@@ -65,7 +65,7 @@ tools/package-app.sh                              # 打包 dist/MicPolish.app
 - 代码：Apache-2.0（见 `LICENSE`）。
 - RE-USE 推理代码来自 [SpeechLens](https://github.com/faraday/SpeechLens)（Apache-2.0）。
 - 模型权重 [nvidia/NVIDIA-NemotronLabs-RE-USE](https://huggingface.co/nvidia/NVIDIA-NemotronLabs-RE-USE)：OpenMDW-1.1，允许商用；运行时下载，不随应用分发。
-- 模型权重 [inworld/voice-isolator](https://huggingface.co/inworld/voice-isolator)：Apache-2.0；运行时下载（约 256 MB），首次打开强降噪时才下载。
+- 模型权重 [inworld/voice-isolator](https://huggingface.co/inworld/voice-isolator)：Apache-2.0；运行时下载（约 256 MB）：第一次在开启强降噪的情况下处理时才下载，也可以在设置里提前下载。
 - 模型权重 [LavaSR v2](https://github.com/ysharma3501/LavaSR)：Apache-2.0；从 safetensors 镜像运行时下载。
 - MP3 编码：LAME 3.100，LGPL-2.0，以可替换的动态库形式随应用分发（`licenses/LAME-LGPL-2.0.txt`）。
 
