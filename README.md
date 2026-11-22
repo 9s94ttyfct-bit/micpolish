@@ -16,7 +16,10 @@ MP3. Nothing leaves your Mac.
 - **母带处理**：高通、四段 EQ（含“MacBook 麦克风校正”预设）、去齿音、压缩、响度标准化（−16 / −14 / −23 LUFS，ITU-R BS.1770，单声道按双单声道计量）、真峰值限幅（默认 −1 dBTP）。参数可实时试听，导出与试听一致。
 - **三路对比**：原始 / AI 处理后 / 成品在同一位置切换，自动按响度对齐，比较的是音质而不是音量。
 - **体积控制**：每个会话只保留原始音频（自录为 FLAC 无损）、`session.json` 和一个成品文件。中间音频在导出后、退出时自动删除。
-- **命令行**：`micpolish process input.wav --output out.m4a --preset macbook`。
+- **高频增强（可选）**：LavaSR v2（Apache-2.0）在 AI 修复后重新生成起始频率以上的高频，起始频率可选自动 / 8 / 12 / 16 kHz。
+- **批量与快速导出**：侧栏多选后可批量删除或“一键处理并导出”；可指定导出文件夹，工具栏“快速导出”一步导出当前录音。
+- **双语界面**：中文 / English / 跟随系统，工具栏地球图标即时切换。
+- **命令行**：`micpolish process input.wav --output out.m4a --preset macbook [--high-band auto]`；`micpolish abx input.wav --out dir/` 生成盲听用的乱序对比文件。
 
 ## 系统要求
 
@@ -41,7 +44,7 @@ Apple Silicon Mac，macOS 14 或更新。
 
 ## 性能
 
-M4 Pro 上 RE-USE 的实时率（RTF，处理时间 ÷ 音频时长）中位数为 0.537，48 kHz 时 MLX 内存峰值 2.8 GB，与录音时长无关。完整数据见 [docs/performance.md](docs/performance.md)。
+M4 Pro 上 RE-USE 的实时率（RTF，处理时间 ÷ 音频时长）中位数为 0.537，48 kHz 时 MLX 内存峰值 3.2 GB（预算 5 GB），与录音时长无关。完整数据见 [docs/performance.md](docs/performance.md)。
 
 ## 开发
 
@@ -60,6 +63,7 @@ tools/package-app.sh                              # 打包 dist/MicPolish.app
 - 代码：Apache-2.0（见 `LICENSE`）。
 - RE-USE 推理代码来自 [SpeechLens](https://github.com/faraday/SpeechLens)（Apache-2.0）。
 - 模型权重 [nvidia/NVIDIA-NemotronLabs-RE-USE](https://huggingface.co/nvidia/NVIDIA-NemotronLabs-RE-USE)：OpenMDW-1.1，允许商用；运行时下载，不随应用分发。
+- 模型权重 [LavaSR v2](https://github.com/ysharma3501/LavaSR)：Apache-2.0；从 safetensors 镜像运行时下载。
 - MP3 编码：LAME 3.100，LGPL-2.0，以可替换的动态库形式随应用分发（`licenses/LAME-LGPL-2.0.txt`）。
 
 详见 `NOTICE`。

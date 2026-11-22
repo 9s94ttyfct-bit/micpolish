@@ -93,4 +93,32 @@ final class SessionsTests: XCTestCase {
         XCTAssertNotEqual(store.directory(for: a.id), store.directory(for: b.id))
         XCTAssertEqual(try store.list().count, 2)
     }
+
+    func testRenameUpdatesManifestDirectoryAndExportFile() throws {
+        let store = SessionStore(root: root)
+        var m = try store.adoptRecording(try audioFile("r.flac"), name: "录音")
+        try Data("x".utf8).write(to: store.exportURL(for: m, format: .m4a))
+        m = try store.recordExport(format: .m4a, record: ExportRecord(fileName: "录音.m4a", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: m)
+
+        let renamed = try store.rename(m.id, to: "周一访谈")
+        XCTAssertEqual(renamed.name, "周一访谈")
+        XCTAssertEqual(renamed.lastExport?.fileName, "周一访谈.m4a")
+        let dir = store.directory(for: m.id)
+        XCTAssertTrue(dir.lastPathComponent.hasSuffix("周一访谈"))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted(),
+                       ["original.flac", "session.json", "周一访谈.m4a"])
+        XCTAssertEqual(try store.list().first?.name, "周一访谈")
+    }
+
+    func testExternalExportIsRecordedWithoutTouchingSessionFolder() throws {
+        let store = SessionStore(root: root)
+        var m = try store.adoptRecording(try audioFile("r.flac"), name: "a")
+        try Data("x".utf8).write(to: store.exportURL(for: m, format: .m4a))
+        let outside = root.deletingLastPathComponent().appendingPathComponent("exports")
+        m = try store.recordExport(format: .mp3, record: ExportRecord(fileName: "a.mp3", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1, directory: outside.path), for: m)
+        XCTAssertEqual(m.lastExport?.directory, outside.path)
+        XCTAssertEqual(store.lastExportURL(for: m), outside.appendingPathComponent("a.mp3"))
+        // The session's own export stays: an external export is a copy elsewhere.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.exportURL(for: m, format: .m4a).path))
+    }
 }

@@ -11,6 +11,22 @@ public struct ModelDescriptor: Sendable, Hashable {
     public var byteCount: Int
     /// File name under the module's `licenses` resources.
     public let licenseResource: String
+    public var format: Format = .reuseCheckpoint
+
+    public enum Format: Sendable, Hashable {
+        /// Upstream RE-USE PyTorch checkpoint, converted to MLX layout locally.
+        case reuseCheckpoint
+        /// Installed exactly as downloaded (the loader converts at run time).
+        case asIs
+    }
+
+    /// File name of the installed weights.
+    public var installedFileName: String {
+        switch format {
+        case .reuseCheckpoint: "model_mlx.safetensors"
+        case .asIs: (file as NSString).lastPathComponent
+        }
+    }
 
     public var sourceURL: URL {
         URL(string: "https://huggingface.co/\(repo)/resolve/\(revision)/\(file)")!
@@ -38,7 +54,20 @@ public enum ModelCatalog {
         licenseResource: "OpenMDW-1.1.txt"
     )
 
-    public static let all = [reuse, reuseLaughter]
+    /// LavaSR v2 bandwidth extension (Apache-2.0), from a safetensors mirror of
+    /// YatharthS/LavaSR `enhancer_v2/pytorch_model.bin`.
+    public static let lavaSR = ModelDescriptor(
+        id: "lavasr-v2",
+        repo: "AEmotionStudio/lavasr-models",
+        revision: "291b7810dcd42e111b114fcc6cf07d0d021b9bea",
+        file: "enhancer_v2/model.safetensors",
+        sha256: "0b2be25ec0773ccdb34a4b2196babc557eba762357ff6138dde7ce2861f12e79",
+        byteCount: 56_293_752,
+        licenseResource: "Apache-2.0-LavaSR.txt",
+        format: .asIs
+    )
+
+    public static let all = [reuse, reuseLaughter, lavaSR]
 
     public static func descriptor(id: String) -> ModelDescriptor? {
         all.first { $0.id == id }

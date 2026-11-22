@@ -26,7 +26,7 @@ struct SettingsView: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(d.id)
-                            Text("\(d.repo) @ \(d.revision.prefix(8)) · OpenMDW-1.1").font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: "\(d.repo) @ \(d.revision.prefix(8)) · \(d.licenseResource.hasPrefix("OpenMDW") ? "OpenMDW-1.1" : "Apache-2.0")").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         if installed[d.id] == true {

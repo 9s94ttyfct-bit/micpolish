@@ -2,17 +2,44 @@ import Export
 import Foundation
 import Mastering
 
+/// Where LavaSR starts generating high frequencies.
+public enum HighBandCutoff: String, Codable, CaseIterable, Sendable {
+    /// The source's Nyquist frequency for band-limited imports, otherwise
+    /// the measured effective bandwidth of the restored audio.
+    case auto
+    case hz8000 = "8000"
+    case hz12000 = "12000"
+    case hz16000 = "16000"
+
+    public var hertz: Double? {
+        switch self {
+        case .auto: nil
+        case .hz8000: 8000
+        case .hz12000: 12_000
+        case .hz16000: 16_000
+        }
+    }
+}
+
 /// AI-stage settings. New fields must have defaults so older manifests decode.
 public struct ProcessingSettings: Codable, Equatable, Sendable {
     public var reuseVariant: String = "reuse-nemotron"
+    /// LavaSR v2 high-frequency enhancement after RE-USE.
+    public var highBandEnabled = false
+    public var highBandCutoff: HighBandCutoff = .auto
 
-    public init(reuseVariant: String = "reuse-nemotron") {
+    public init(reuseVariant: String = "reuse-nemotron", highBandEnabled: Bool = false,
+                highBandCutoff: HighBandCutoff = .auto) {
         self.reuseVariant = reuseVariant
+        self.highBandEnabled = highBandEnabled
+        self.highBandCutoff = highBandCutoff
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         reuseVariant = try c.decodeIfPresent(String.self, forKey: .reuseVariant) ?? "reuse-nemotron"
+        highBandEnabled = try c.decodeIfPresent(Bool.self, forKey: .highBandEnabled) ?? false
+        highBandCutoff = try c.decodeIfPresent(HighBandCutoff.self, forKey: .highBandCutoff) ?? .auto
     }
 }
 
@@ -29,13 +56,18 @@ public struct ExportRecord: Codable, Equatable, Sendable {
     public var modelRevisions: [String: String]
     public var backend: String
     public var processingSeconds: Double
+    /// Absolute folder for exports outside the session folder; nil means the
+    /// session folder itself.
+    public var directory: String?
 
-    public init(fileName: String, exportedAt: Date, modelRevisions: [String: String], backend: String, processingSeconds: Double) {
+    public init(fileName: String, exportedAt: Date, modelRevisions: [String: String], backend: String,
+                processingSeconds: Double, directory: String? = nil) {
         self.fileName = fileName
         self.exportedAt = exportedAt
         self.modelRevisions = modelRevisions
         self.backend = backend
         self.processingSeconds = processingSeconds
+        self.directory = directory
     }
 }
 

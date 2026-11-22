@@ -12,6 +12,7 @@ let package = Package(
     products: [
         .library(name: "AudioCore", targets: ["AudioCore"]),
         .library(name: "ReuseMLX", targets: ["ReuseMLX"]),
+        .library(name: "LavaMLX", targets: ["LavaMLX"]),
         .library(name: "ModelStore", targets: ["ModelStore"]),
         .library(name: "Mastering", targets: ["Mastering"]),
         .library(name: "Export", targets: ["Export"]),
@@ -45,6 +46,14 @@ let package = Package(
             ]
         ),
         .target(
+            name: "LavaMLX",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+            ]
+        ),
+        .target(
             name: "ModelStore",
             dependencies: ["ReuseMLX"],
             resources: [.copy("Resources/licenses")]
@@ -60,7 +69,7 @@ let package = Package(
             ]
         ),
         .target(name: "Sessions", dependencies: ["AudioCore", "Mastering", "Export"]),
-        .target(name: "Pipeline", dependencies: ["AudioCore", "ReuseMLX", "Sessions"]),
+        .target(name: "Pipeline", dependencies: ["AudioCore", "ReuseMLX", "LavaMLX", "Sessions"]),
         .target(
             name: "Recording",
             dependencies: ["AudioCore", "Sessions"],
@@ -74,14 +83,14 @@ let package = Package(
         .executableTarget(
             name: "micpolish",
             dependencies: [
-                "AudioCore", "ReuseMLX", "ModelStore", "Mastering", "Export", "Sessions", "Pipeline",
+                "AudioCore", "ReuseMLX", "LavaMLX", "ModelStore", "Mastering", "Export", "Sessions", "Pipeline",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
         .executableTarget(
             name: "MicPolishApp",
             dependencies: [
-                "AudioCore", "ReuseMLX", "ModelStore", "Mastering", "Export", "Sessions", "Pipeline",
+                "AudioCore", "ReuseMLX", "LavaMLX", "ModelStore", "Mastering", "Export", "Sessions", "Pipeline",
                 "Recording", "Preview",
             ],
             // Compiled into the app bundle's lproj folders by tools/package-app.sh.
@@ -90,6 +99,7 @@ let package = Package(
         .testTarget(name: "AudioCoreTests", dependencies: ["AudioCore"]),
         .testTarget(name: "ReuseMLXTests", dependencies: ["ReuseMLX"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
+        .testTarget(name: "LavaMLXTests", dependencies: ["LavaMLX", "AudioCore"]),
         .testTarget(name: "MasteringTests", dependencies: ["Mastering", "AudioCore"]),
         .testTarget(name: "ExportTests", dependencies: ["Export", "AudioCore"]),
         .testTarget(name: "SessionsTests", dependencies: ["Sessions", "AudioCore", "Export"]),
