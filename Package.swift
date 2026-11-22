@@ -1,5 +1,9 @@
 // swift-tools-version: 6.3
+import Foundation
 import PackageDescription
+
+/// LAME is built into vendor/lame by tools/build_lame.sh and linked dynamically.
+let lameLib = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("vendor/lame/lib").path
 
 let package = Package(
     name: "MicPolish",
@@ -10,6 +14,7 @@ let package = Package(
         .library(name: "ReuseMLX", targets: ["ReuseMLX"]),
         .library(name: "ModelStore", targets: ["ModelStore"]),
         .library(name: "Mastering", targets: ["Mastering"]),
+        .library(name: "Export", targets: ["Export"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
@@ -39,9 +44,19 @@ let package = Package(
             resources: [.copy("Resources/licenses")]
         ),
         .target(name: "Mastering", dependencies: ["AudioCore"]),
+        .systemLibrary(name: "CLame"),
+        .target(
+            name: "Export",
+            dependencies: ["AudioCore", "CLame"],
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+                .unsafeFlags(["-L\(lameLib)", "-Xlinker", "-rpath", "-Xlinker", lameLib]),
+            ]
+        ),
         .testTarget(name: "AudioCoreTests", dependencies: ["AudioCore"]),
         .testTarget(name: "ReuseMLXTests", dependencies: ["ReuseMLX"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(name: "MasteringTests", dependencies: ["Mastering", "AudioCore"]),
+        .testTarget(name: "ExportTests", dependencies: ["Export", "AudioCore"]),
     ]
 )

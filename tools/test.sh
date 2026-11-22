@@ -6,6 +6,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
+tools/build_lame.sh
+
 bin_dir="$(swift build --show-bin-path)"
 # A metallib left inside a bundle from the previous run breaks the build's
 # code-signing step, so remove the copies before building and re-add them after.
