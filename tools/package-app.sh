@@ -9,7 +9,10 @@ tools/build_lame.sh
 swift build -c release --product MicPolishApp
 bin="$(swift build -c release --show-bin-path)"
 
-app="dist/MicPolish.app"
+final="dist/MicPolish.app"
+# Assemble in a staging bundle and swap at the end, so a running copy of the
+# app never sees a half-built bundle.
+app="dist/MicPolish.app.staging"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 
@@ -58,4 +61,11 @@ codesign --force --sign - "$app/Contents/Frameworks/libmp3lame.0.dylib"
 # standalone file so the bundle seal covers it.
 codesign --force --sign - "$app/Contents/MacOS/mlx.metallib"
 codesign --force --sign - --entitlements Config/MicPolish.entitlements "$app"
-echo "Built $app"
+codesign --verify --deep --strict "$app"
+
+if pgrep -f "$root/$final/Contents/MacOS/MicPolish" >/dev/null; then
+  echo "note: MicPolish is running from $final; quit and reopen it to use the new build" >&2
+fi
+rm -rf "$final"
+mv "$app" "$final"
+echo "Built $final"

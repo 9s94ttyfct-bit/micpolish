@@ -49,6 +49,12 @@ public struct LavaStage: AudioStage {
             }
             finished = buffer.count < Self.chunkFrames
             guard !buffer.isEmpty else { break }
+            if finished, !previousTail.isEmpty, buffer.count == previousTail.count {
+                // EOF right after a full chunk: only the already-enhanced overlap is left.
+                try writer.append(previousTail)
+                consumed += previousTail.count
+                break
+            }
             let chunk = Array(buffer.prefix(Self.chunkFrames))
             var enhanced = try enhancer.enhance(chunk, cutoffHz: cutoff)
 

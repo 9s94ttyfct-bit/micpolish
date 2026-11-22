@@ -240,6 +240,26 @@ final class LavaStageTests: XCTestCase {
         XCTAssertTrue(extender.chunkSizes.allSatisfy { $0 <= LavaStage.chunkFrames })
     }
 
+    func testExactChunkBoundaryDoesNotReenhanceTheOverlap() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let input = dir.appendingPathComponent("in.caf")
+        let hop = LavaStage.chunkFrames - LavaStage.overlapFrames
+        let samples = (0..<(LavaStage.chunkFrames + hop)).map { Float(0.3 * sin(Double($0) * 0.01)) }
+        let w = try MonoFileWriter(url: input, sampleRate: 48_000, format: .cafFloat32)
+        try w.append(samples)
+        try w.close()
+
+        let extender = IdentityExtender()
+        let stage = LavaStage(enhancer: extender, revision: "test", cutoffHz: 12_000)
+        let output = dir.appendingPathComponent("out.caf")
+        try await stage.run(input: StageIO(url: input, sampleRate: 48_000, cacheKey: "k"), output: output) { _ in }
+
+        XCTAssertEqual(try readAllMono(output).samples.count, samples.count)
+        XCTAssertEqual(extender.chunkSizes, [LavaStage.chunkFrames, LavaStage.chunkFrames])
+    }
+
     func testAutoCutoffUsesMeasuredBandwidth() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
