@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "Mastering", targets: ["Mastering"]),
         .library(name: "Export", targets: ["Export"]),
         .library(name: "Sessions", targets: ["Sessions"]),
+        .library(name: "Pipeline", targets: ["Pipeline"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
@@ -55,11 +56,16 @@ let package = Package(
             ]
         ),
         .target(name: "Sessions", dependencies: ["AudioCore", "Mastering", "Export"]),
+        .target(name: "Pipeline", dependencies: ["AudioCore", "ReuseMLX", "Sessions"]),
         .testTarget(name: "AudioCoreTests", dependencies: ["AudioCore"]),
         .testTarget(name: "ReuseMLXTests", dependencies: ["ReuseMLX"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(name: "MasteringTests", dependencies: ["Mastering", "AudioCore"]),
         .testTarget(name: "ExportTests", dependencies: ["Export", "AudioCore"]),
         .testTarget(name: "SessionsTests", dependencies: ["Sessions", "AudioCore", "Export"]),
+        .testTarget(
+            name: "PipelineTests",
+            dependencies: ["Pipeline", "AudioCore", "ReuseMLX", "Sessions", .product(name: "MLX", package: "mlx-swift")]
+        ),
     ]
 )

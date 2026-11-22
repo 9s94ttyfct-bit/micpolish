@@ -48,7 +48,7 @@ public protocol StreamingSpeechEnhancer: Sendable {
 /// MLX-native implementation of the SE-Mamba speech enhancement model.
 public actor MambaEnhancer: StreamingSpeechEnhancer {
     private let model: SEMamba
-    public let mode: InferenceMode
+    public nonisolated let mode: InferenceMode
     
     public init(modelWeightsURL: URL, mode: InferenceMode = .standard) throws {
         self.mode = mode
