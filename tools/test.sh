@@ -6,8 +6,11 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-swift build --build-tests >/dev/null
 bin_dir="$(swift build --show-bin-path)"
+# A metallib left inside a bundle from the previous run breaks the build's
+# code-signing step, so remove the copies before building and re-add them after.
+rm -f "$bin_dir"/*.xctest/Contents/MacOS/mlx.metallib
+swift build --build-tests >/dev/null
 if [[ ! -s "$bin_dir/mlx.metallib" ]]; then
   tools/build_mlx_metallib.sh --output "$bin_dir/mlx.metallib"
 fi
@@ -15,8 +18,7 @@ fi
 # bundle's own executable.
 for bundle in "$bin_dir"/*.xctest; do
   [[ -d "$bundle/Contents/MacOS" ]] || continue
-  cmp -s "$bin_dir/mlx.metallib" "$bundle/Contents/MacOS/mlx.metallib" ||
-    cp "$bin_dir/mlx.metallib" "$bundle/Contents/MacOS/mlx.metallib"
+  cp "$bin_dir/mlx.metallib" "$bundle/Contents/MacOS/mlx.metallib"
 done
 
 exec swift test --skip-build "$@"

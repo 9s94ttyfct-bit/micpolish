@@ -11,4 +11,5 @@ https://github.com/faraday/SpeechLens (commit 0c0dcbd7d29b57d62d90eeadeb42496a6b
 Copyright 2026 Çağatay Çallı. Licensed under the Apache License, Version 2.0.
 The RE-USE SE-Mamba inference code, Metal kernels and weight key mapping are
 taken from SpeechLens' Sources/Inference and Sources/WeightPort, with the
-logging subsystem, environment variable and tool paths renamed for MicPolish.
+logging subsystem, environment variable and tool paths renamed for MicPolish,
+and the STFT input normalizing signed-zero imaginary parts (see Inference.swift).

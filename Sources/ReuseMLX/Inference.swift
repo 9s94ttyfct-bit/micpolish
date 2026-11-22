@@ -318,7 +318,7 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
         }
     }
 
-    private func stftInputs(
+    nonisolated func stftInputs(
         samples: [Float],
         nFFT: Int,
         hop: Int,
@@ -348,13 +348,18 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
 
         let spec = rfft(windowedFrames, n: nFFT, axis: -1)
         let real = spec.realPart()
-        let imag = spec.imaginaryPart()
+        // The DC and Nyquist bins of a real signal have an exactly-zero imaginary
+        // part. PyTorch's CPU FFT returns +0.0 there, so a negative real part
+        // gives phase +π; MLX can return -0.0 and therefore -π. The model takes
+        // phase as an input feature, so normalize signed zeros to +0.0.
+        let rawImag = spec.imaginaryPart()
+        let imag = which(rawImag .== 0, MLXArray(Float(0)), rawImag)
         let mag = (real * real + imag * imag).sqrt().log1p().transposed(1, 0).expandedDimensions(axis: 0)
         let pha = MLX.atan2(imag, real).transposed(1, 0).expandedDimensions(axis: 0)
         return (mag, pha, framing.frameCount)
     }
 
-    private func centeredReflectPaddedArray(_ samples: [Float], nFFT: Int) -> MLXArray {
+    private nonisolated func centeredReflectPaddedArray(_ samples: [Float], nFFT: Int) -> MLXArray {
         let padLen = nFFT / 2
         let n = samples.count
         if n > padLen + 1 {
@@ -375,7 +380,7 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
         return MLXArray(padded)
     }
 
-    private func istft(
+    nonisolated func istft(
         mag: MLXArray,
         pha: MLXArray,
         originalCount: Int,
