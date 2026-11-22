@@ -1,0 +1,8 @@
+.build/
+.superpowers/
+.ompw-env/
+*.xcodeproj
+dist/
+vendor/
+.swiftpm/
+Tests/Fixtures/**/model*.safetensors
