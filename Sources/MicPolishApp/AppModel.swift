@@ -90,7 +90,14 @@ final class AppModel: ObservableObject {
     let recorder: Recorder
     let preview = PreviewPlayer()
     let modelStore = ModelStore(root: ModelStore.defaultRoot)
-    let cacheRoot = Workspace.defaultCacheRoot
+    let cacheRoot = AppModel.defaultCacheRoot
+    /// `MICPOLISH_DATA_ROOT` runs the app on its own sessions and cache folders
+    /// (for testing next to a running copy, which would otherwise share them).
+    static let dataRootOverride = ProcessInfo.processInfo.environment["MICPOLISH_DATA_ROOT"]
+        .map { URL(fileURLWithPath: $0, isDirectory: true) }
+    static var defaultCacheRoot: URL {
+        dataRootOverride?.appendingPathComponent("cache", isDirectory: true) ?? Workspace.defaultCacheRoot
+    }
     private(set) var store: SessionStore
     private var enhancers: [String: MambaEnhancer] = [:]
     private var lava: LavaEnhancer?
@@ -106,11 +113,12 @@ final class AppModel: ObservableObject {
     private let backend = "MLX GPU"
 
     init() {
-        let root = UserDefaults.standard.string(forKey: "sessionsRoot").map { URL(fileURLWithPath: $0) }
+        let root = Self.dataRootOverride?.appendingPathComponent("sessions", isDirectory: true)
+            ?? UserDefaults.standard.string(forKey: "sessionsRoot").map { URL(fileURLWithPath: $0) }
             ?? SessionStore.defaultRoot
         sessionsRoot = root
         store = SessionStore(root: root)
-        recorder = Recorder(store: SessionStore(root: root), cacheRoot: Workspace.defaultCacheRoot)
+        recorder = Recorder(store: SessionStore(root: root), cacheRoot: Self.defaultCacheRoot)
         language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "") ?? .system
         exportFolder = UserDefaults.standard.string(forKey: "exportFolder").map { URL(fileURLWithPath: $0, isDirectory: true) }
         recorder.interruptedName = tr("录音（中断）", "Recording (interrupted)")
