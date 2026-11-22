@@ -7,6 +7,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "AudioCore", targets: ["AudioCore"]),
+        .library(name: "ReuseMLX", targets: ["ReuseMLX"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
@@ -21,6 +22,16 @@ let package = Package(
                 .linkedFramework("Accelerate"),
             ]
         ),
+        .target(
+            name: "ReuseMLX",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "MLXRandom", package: "mlx-swift"),
+            ]
+        ),
         .testTarget(name: "AudioCoreTests", dependencies: ["AudioCore"]),
+        .testTarget(name: "ReuseMLXTests", dependencies: ["ReuseMLX"]),
     ]
 )

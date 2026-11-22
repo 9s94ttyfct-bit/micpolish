@@ -4,3 +4,11 @@ Copyright 2026 9s94ttyfct-bit
 Licensed under the Apache License, Version 2.0. See LICENSE.
 
 Third-party components are listed below with their licenses.
+
+----------------------------------------------------------------------
+Sources/ReuseMLX — SpeechLens
+https://github.com/faraday/SpeechLens (commit 0c0dcbd7d29b57d62d90eeadeb42496a6b794a1f)
+Copyright 2026 Çağatay Çallı. Licensed under the Apache License, Version 2.0.
+The RE-USE SE-Mamba inference code, Metal kernels and weight key mapping are
+taken from SpeechLens' Sources/Inference and Sources/WeightPort, with the
+logging subsystem, environment variable and tool paths renamed for MicPolish.

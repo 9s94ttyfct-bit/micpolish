@@ -11,5 +11,12 @@ bin_dir="$(swift build --show-bin-path)"
 if [[ ! -s "$bin_dir/mlx.metallib" ]]; then
   tools/build_mlx_metallib.sh --output "$bin_dir/mlx.metallib"
 fi
+# Test bundles statically link MLX, so MLX resolves the metallib next to each
+# bundle's own executable.
+for bundle in "$bin_dir"/*.xctest; do
+  [[ -d "$bundle/Contents/MacOS" ]] || continue
+  cmp -s "$bin_dir/mlx.metallib" "$bundle/Contents/MacOS/mlx.metallib" ||
+    cp "$bin_dir/mlx.metallib" "$bundle/Contents/MacOS/mlx.metallib"
+done
 
 exec swift test --skip-build "$@"
