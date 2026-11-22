@@ -103,7 +103,7 @@ private struct ProcessPanel: View {
                     default:
                         Button(model.processedURL == nil ? "处理" : "重新处理") { model.process() }
                             .buttonStyle(.borderedProminent)
-                            .disabled(model.modelState != .ready && model.modelState != .notInstalled)
+                            .disabled(model.isExporting || (model.modelState != .ready && model.modelState != .notInstalled))
                     }
                 }
                 switch model.processing {
@@ -154,7 +154,7 @@ private struct ExportPanel: View {
                     Spacer()
                     Button("导出") { model.export() }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.processedURL == nil)
+                        .disabled(model.processedURL == nil || model.isExporting || model.isProcessing)
                 }
                 if let message = model.exportMessage {
                     Text(message).font(.caption).foregroundStyle(.secondary)

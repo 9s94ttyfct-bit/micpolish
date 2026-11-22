@@ -11,6 +11,16 @@ public final class RecordingSink: @unchecked Sendable {
     private let lock = NSLock()
     private var lastPeak: Float = 0
     public private(set) var framesWritten = 0
+    private var storedFailure: Error?
+
+    /// The first write error, if any. Capture runs on Core Audio's thread, so
+    /// the recorder polls this to notice a full disk instead of losing audio
+    /// silently.
+    public var failure: Error? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedFailure
+    }
 
     public init(url: URL, inputFormat: AVAudioFormat) throws {
         self.url = url
@@ -27,6 +37,17 @@ public final class RecordingSink: @unchecked Sendable {
     }
 
     public func append(_ buffer: AVAudioPCMBuffer) throws {
+        do {
+            try write(buffer)
+        } catch {
+            lock.lock()
+            if storedFailure == nil { storedFailure = error }
+            lock.unlock()
+            throw error
+        }
+    }
+
+    private func write(_ buffer: AVAudioPCMBuffer) throws {
         let frames = Int(buffer.frameLength)
         guard frames > 0, let data = buffer.floatChannelData else { return }
         let channels = Int(buffer.format.channelCount)

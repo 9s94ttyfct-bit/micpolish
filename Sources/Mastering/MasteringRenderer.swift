@@ -22,6 +22,7 @@ public enum MasteringRenderer {
     static let maximumRefinements = 4
 
     /// Computes the loudness gain for `input` without writing anything.
+    /// Throws `CancellationError` promptly when the calling task is cancelled.
     ///
     /// The first estimate comes from the loudness ahead of the gain stage.
     /// The limiter then removes loudness on peaky material, so the full chain
@@ -33,6 +34,7 @@ public enum MasteringRenderer {
         let chain = MasteringChain(settings: settings, sampleRate: reader.sampleRate)
         var meter = LoudnessMeter(sampleRate: reader.sampleRate)
         while let block = try reader.read(maxFrames: blockFrames) {
+            try Task.checkCancellation()
             meter.add(block.map { Float(chain.processBeforeGain(Double($0))) })
         }
         guard let measured = meter.integratedLUFS else { return (nil, 0) }
@@ -82,6 +84,7 @@ public enum MasteringRenderer {
         }
 
         while var block = try reader.read(maxFrames: blockFrames) {
+            try Task.checkCancellation()
             chain.process(&block)
             try emit(block)
         }

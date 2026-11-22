@@ -31,12 +31,24 @@ public final class Recorder: ObservableObject {
     @Published public private(set) var isRecording = false
     @Published public private(set) var levelDBFS: Float = -120
     @Published public private(set) var elapsed: TimeInterval = 0
+    /// Set when capture stopped on its own (disk full, input device change);
+    /// the audio captured up to that point is saved as a session.
+    @Published public private(set) var interruption: Interruption?
 
-    private let store: SessionStore
+    public struct Interruption: Equatable {
+        public let session: SessionManifest?
+        public let reason: String
+    }
+
+    /// Where finished recordings go; follows the app's current sessions folder.
+    public var store: SessionStore
     private let cacheRoot: URL
     private var engine: AVAudioEngine?
     private var sink: RecordingSink?
     private var timer: Timer?
+    private var configurationObserver: NSObjectProtocol?
+    private var configurationChanged = false
+    private var stopping = false
 
     public init(store: SessionStore, cacheRoot: URL) {
         self.store = store
@@ -70,23 +82,55 @@ public final class Recorder: ObservableObject {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let sink = try RecordingSink(url: directory.appendingPathComponent("\(UUID().uuidString).caf"), inputFormat: format)
 
-        node.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            try? sink.append(buffer)
-        }
+        Self.installCapture(on: node, format: format, sink: sink)
         engine.prepare()
         try engine.start()
 
         self.engine = engine
         self.sink = sink
         elapsed = 0
+        interruption = nil
+        configurationChanged = false
+        stopping = false
         isRecording = true
+        // A device change (e.g. a headset connecting) stops the engine.
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.configurationChanged = true }
+        }
         let started = Date()
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, let sink = self.sink else { return }
-                self.levelDBFS = sink.peakDBFS
-                self.elapsed = Date().timeIntervalSince(started)
-            }
+            MainActor.assumeIsolated { self?.tick(started: started) }
+        }
+    }
+
+    /// Builds the tap outside any actor: Core Audio calls it on its own
+    /// thread, where a main-actor isolation check would trap.
+    nonisolated static func installCapture(on node: AVAudioInputNode, format: AVAudioFormat, sink: RecordingSink) {
+        node.installTap(onBus: 0, bufferSize: 4096, format: format) { @Sendable buffer, _ in
+            // A write error is recorded in the sink and reported by `tick`.
+            try? sink.append(buffer)
+        }
+    }
+
+    private func tick(started: Date) {
+        guard isRecording, !stopping, let sink, let engine else { return }
+        levelDBFS = sink.peakDBFS
+        elapsed = Date().timeIntervalSince(started)
+        let reason: String?
+        if let failure = sink.failure {
+            reason = "录音写入失败（\(failure.localizedDescription)），已保存出错前的部分。"
+        } else if configurationChanged || !engine.isRunning {
+            reason = "输入设备发生变化，录音已停止并保存。"
+        } else {
+            reason = nil
+        }
+        guard let reason else { return }
+        stopping = true
+        Task {
+            let session = try? await stop(name: "录音（中断）")
+            interruption = Interruption(session: session, reason: reason)
         }
     }
 
@@ -95,6 +139,8 @@ public final class Recorder: ObservableObject {
         guard let engine, let sink else { throw RecorderError.notRecording }
         timer?.invalidate()
         timer = nil
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        configurationObserver = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         self.engine = nil

@@ -1,4 +1,5 @@
 import AudioCore
+import Combine
 import Export
 import Foundation
 import Mastering
@@ -30,7 +31,7 @@ enum ProcessingState: Equatable {
 final class AppModel: ObservableObject {
     @Published var sessions: [SessionManifest] = []
     @Published var selectedID: UUID? {
-        didSet { if oldValue != selectedID { sessionChanged() } }
+        didSet { if oldValue != selectedID { sessionChanged(from: oldValue) } }
     }
     @Published var modelState: ModelState = .checking
     @Published var processing: ProcessingState = .idle
@@ -38,10 +39,12 @@ final class AppModel: ObservableObject {
     @Published var exportMessage: String?
     @Published var errorMessage: String?
     @Published var workspaceBytes: Int64 = 0
+    @Published var isExporting = false
     @Published var sessionsRoot: URL {
         didSet {
             UserDefaults.standard.set(sessionsRoot.path, forKey: "sessionsRoot")
             store = SessionStore(root: sessionsRoot)
+            recorder.store = store
             refresh()
         }
     }
@@ -54,6 +57,8 @@ final class AppModel: ObservableObject {
     private var enhancers: [String: MambaEnhancer] = [:]
     private var processingTask: Task<Void, Never>?
     private var gainTask: Task<Void, Never>?
+    private var gainWork: Task<Double, Error>?
+    private var interruptionObserver: AnyCancellable?
 
     init() {
         let root = UserDefaults.standard.string(forKey: "sessionsRoot").map { URL(fileURLWithPath: $0) }
@@ -70,8 +75,18 @@ final class AppModel: ObservableObject {
     // MARK: Lifecycle
 
     func launch() async {
+        interruptionObserver = recorder.$interruption.compactMap { $0 }.sink { [weak self] interruption in
+            guard let self else { return }
+            self.refresh()
+            if let session = interruption.session { self.selectedID = session.id }
+            self.errorMessage = interruption.reason
+        }
         try? Workspace.purgeAll(cacheRoot: cacheRoot)
-        let recovered = (try? RecordingRecovery.recover(cacheRoot: cacheRoot, store: store)) ?? []
+        let store = store
+        let cacheRoot = cacheRoot
+        let recovered = await Task.detached {
+            (try? RecordingRecovery.recover(cacheRoot: cacheRoot, store: store)) ?? []
+        }.value
         refresh()
         if let first = recovered.first { selectedID = first.id }
         await checkModel()
@@ -166,17 +181,40 @@ final class AppModel: ObservableObject {
         if let i = sessions.firstIndex(where: { $0.id == m.id }) { sessions[i] = m }
     }
 
-    private func sessionChanged() {
+    /// Preview scratch files live in the session's workspace, so export,
+    /// quit and launch clean them up with the other intermediates.
+    private func previewScratch(for id: UUID) -> URL {
+        Workspace(cacheRoot: cacheRoot, sessionID: id).directory.appendingPathComponent("preview", isDirectory: true)
+    }
+
+    private func sessionChanged(from previous: UUID?) {
         processingTask?.cancel()
+        gainTask?.cancel()
+        gainWork?.cancel()
+        currentGain = 0
         preview.pause()
         processing = .idle
         processedURL = nil
         exportMessage = nil
+        if let previous { try? FileManager.default.removeItem(at: previewScratch(for: previous)) }
         guard let m = selected else { return }
-        try? preview.load(original: store.originalURL(for: m), processed: nil)
         preview.setMastering(m.mastering, loudnessGainDB: 0)
+        reloadPreview(m, processed: nil)
         workspaceBytes = Workspace.totalDiskUsage(cacheRoot: cacheRoot)
         Task { await checkModel() }
+    }
+
+    private func reloadPreview(_ m: SessionManifest, processed: URL?) {
+        let original = store.originalURL(for: m)
+        let scratch = previewScratch(for: m.id)
+        Task {
+            do {
+                try await preview.load(original: original, processed: processed, scratchDirectory: scratch)
+                workspaceBytes = Workspace.totalDiskUsage(cacheRoot: cacheRoot)
+            } catch {
+                if selectedID == m.id { errorMessage = "无法载入试听：\(error.localizedDescription)" }
+            }
+        }
     }
 
     // MARK: Processing
@@ -188,7 +226,7 @@ final class AppModel: ObservableObject {
     }
 
     func process() {
-        guard let m = selected else { return }
+        guard let m = selected, !isExporting else { return }
         processingTask?.cancel()
         processing = .running(stage: "准备模型", fraction: 0, remaining: nil)
         processingTask = Task {
@@ -210,20 +248,27 @@ final class AppModel: ObservableObject {
                     }
                 }
                 try Task.checkCancellation()
+                // The result stays cached in that session's workspace; only
+                // touch the UI if the user is still on that session.
+                guard selectedID == m.id else { return }
                 processedURL = result.url
                 lastProcessingSeconds = Date().timeIntervalSince(started)
                 lastBackend = "MLX GPU"
                 lastRevisions = [descriptor.id: descriptor.revision]
-                try preview.load(original: store.originalURL(for: m), processed: result.url)
+                reloadPreview(m, processed: result.url)
                 processing = .done
-                workspaceBytes = Workspace.totalDiskUsage(cacheRoot: cacheRoot)
                 refreshLoudnessGain()
             } catch is CancellationError {
-                processing = .idle
+                if selectedID == m.id { processing = .idle }
             } catch {
-                processing = .failed(error.localizedDescription)
+                if selectedID == m.id { processing = .failed(error.localizedDescription) }
             }
         }
+    }
+
+    var isProcessing: Bool {
+        if case .running = processing { return true }
+        return false
     }
 
     func cancelProcessing() {
@@ -248,13 +293,17 @@ final class AppModel: ObservableObject {
     /// Re-measures the loudness gain for the current settings in the
     /// background (debounced) and applies it to the live preview.
     private func refreshLoudnessGain() {
-        guard let processedURL, let settings = selected?.mastering else { return }
+        guard let processedURL, let settings = selected?.mastering, let id = selectedID else { return }
         gainTask?.cancel()
+        gainWork?.cancel()
         gainTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            let gain = await Task.detached { (try? MasteringRenderer.measureGain(input: processedURL, settings: settings))?.gainDB ?? 0 }.value
-            guard !Task.isCancelled else { return }
+            let work = Task.detached(priority: .utility) {
+                try MasteringRenderer.measureGain(input: processedURL, settings: settings).gainDB
+            }
+            gainWork = work
+            guard let gain = try? await work.value, !Task.isCancelled, selectedID == id else { return }
             currentGain = gain
             preview.setMastering(settings, loudnessGainDB: gain)
         }
@@ -263,7 +312,9 @@ final class AppModel: ObservableObject {
     // MARK: Export
 
     func export() {
-        guard let m = selected, let processedURL else { return }
+        guard let m = selected, let processedURL, !isExporting else { return }
+        if case .running = processing { return }
+        isExporting = true
         let options = m.export
         let destination = store.exportURL(for: m, format: options.format)
         let workspace = Workspace(cacheRoot: cacheRoot, sessionID: m.id)
@@ -275,23 +326,27 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 try await Task.detached {
-                    let mastered = workspace.directory.appendingPathComponent("mastered.caf")
+                    let mastered = workspace.directory.appendingPathComponent("mastered-\(UUID().uuidString).caf")
                     let writer = try MonoFileWriter(url: mastered, sampleRate: AudioCore.sampleRate, format: .cafFloat32)
                     try MasteringRenderer.render(input: processedURL, settings: m.mastering, output: writer)
                     try writer.close()
                     try Exporter.export(from: try MonoFileReader(url: mastered), options: options, to: destination)
                 }.value
                 let updated = try store.recordExport(format: options.format, record: record, for: m)
-                preview.pause()
+                isExporting = false
+                let stillSelected = selectedID == m.id
+                if stillSelected { preview.pause() }
                 try workspace.purge()
-                self.processedURL = nil
-                processing = .idle
-                try? preview.load(original: store.originalURL(for: updated), processed: nil)
                 refresh()
                 workspaceBytes = Workspace.totalDiskUsage(cacheRoot: cacheRoot)
+                guard stillSelected else { return }
+                self.processedURL = nil
+                processing = .idle
+                reloadPreview(updated, processed: nil)
                 exportMessage = "已导出 \(destination.lastPathComponent)，中间文件已清理"
             } catch {
-                exportMessage = nil
+                isExporting = false
+                if selectedID == m.id { exportMessage = nil }
                 errorMessage = "导出失败：\(error.localizedDescription)"
             }
         }

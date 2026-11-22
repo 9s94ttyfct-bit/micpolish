@@ -96,6 +96,26 @@ final class MasteringChainTests: XCTestCase {
         XCTAssertLessThanOrEqual(result.report.outputTruePeakDBTP, -1.0)
     }
 
+    func testMeasureGainStopsWhenCancelled() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let src = dir.appendingPathComponent("in.caf")
+        let w = try MonoFileWriter(url: src, sampleRate: 48_000, format: .cafFloat32)
+        let piece = TestSignals.modulatedNoise(seconds: 10, rmsDB: -30)
+        for _ in 0..<12 { try w.append(piece) }
+        try w.close()
+
+        let task = Task.detached { try MasteringRenderer.measureGain(input: src, settings: .default) }
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("expected cancellation")
+        } catch is CancellationError {
+            // expected
+        }
+    }
+
     func testSilenceProducesSilenceWithoutGain() throws {
         let result = try render([Float](repeating: 0, count: 48_000), settings: .default)
         XCTAssertEqual(result.report.appliedGainDB, 0)

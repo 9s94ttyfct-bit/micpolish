@@ -8,7 +8,7 @@ prefix="$root/vendor/lame"
 version="3.100"
 sha256="ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
 
-if [[ -f "$prefix/lib/libmp3lame.0.dylib" && -f "$prefix/include/lame/lame.h" ]]; then
+if [[ -f "$prefix/lib/libmp3lame.0.dylib" && -f "$prefix/include/lame/lame.h" && -f "$prefix/src/lame-$version.tar.gz" ]]; then
   exit 0
 fi
 
@@ -18,6 +18,10 @@ trap 'rm -rf "$work"' EXIT
 tarball="$work/lame-$version.tar.gz"
 curl -sfL -o "$tarball" "https://downloads.sourceforge.net/project/lame/lame/$version/lame-$version.tar.gz"
 echo "$sha256  $tarball" | shasum -a 256 -c - >/dev/null
+
+# Keep the exact source for LGPL redistribution alongside the app.
+mkdir -p "$prefix/src"
+cp "$tarball" "$prefix/src/"
 
 tar -xzf "$tarball" -C "$work"
 cd "$work/lame-$version"

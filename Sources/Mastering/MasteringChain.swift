@@ -49,6 +49,11 @@ public final class MasteringChain {
     }
 
     public func process(_ samples: inout [Float]) {
+        samples.withUnsafeMutableBufferPointer { process($0) }
+    }
+
+    /// In-place processing without allocation, for real-time render callbacks.
+    public func process(_ samples: UnsafeMutableBufferPointer<Float>) {
         let gain = settings.loudness.enabled ? dbToLinear(loudnessGainDB) : 1
         for i in samples.indices {
             var x = processBeforeGain(Double(samples[i])) * gain

@@ -8,18 +8,48 @@ public enum PreviewSource: String, CaseIterable, Sendable {
     case original, processed, mastered
 }
 
-/// Audio-thread state shared by the source node's render block.
+/// A 48 kHz mono Float32 signal memory-mapped from a headerless scratch file,
+/// so preview memory does not grow with recording length.
+final class PreviewSignal: @unchecked Sendable {
+    private let data: NSData
+    let samples: UnsafeBufferPointer<Float>
+
+    init(rawFloatFile url: URL) throws {
+        data = try NSData(contentsOf: url, options: .alwaysMapped)
+        samples = UnsafeBufferPointer(start: data.bytes.assumingMemoryBound(to: Float.self),
+                                      count: data.length / MemoryLayout<Float>.size)
+    }
+
+    var count: Int { samples.count }
+
+    /// Copies `count` samples starting at `start`, zero-filling past the end.
+    @inline(__always)
+    func copy(from start: Int, count: Int, into out: UnsafeMutablePointer<Float>) {
+        let available = max(0, min(count, samples.count - start))
+        if available > 0 {
+            out.update(from: samples.baseAddress! + start, count: available)
+        }
+        if available < count {
+            (out + available).update(repeating: 0, count: count - available)
+        }
+    }
+}
+
+/// State shared with the render block, which runs on Core Audio's I/O thread.
+/// The render path does not allocate.
 final class PreviewState: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock()
 
-    var original: [Float] = []
-    var processed: [Float] = []
+    var original: PreviewSignal?
+    var processed: PreviewSignal?
     var chain: MasteringChain
     var position = 0
     var source: PreviewSource = .original
     var playing = false
-    var gains: [PreviewSource: Float] = [.original: 1, .processed: 1, .mastered: 1]
-    private var scratch = [Float]()
+    var originalGain: Float = 1
+    var processedGain: Float = 1
+    var masteredGain: Float = 1
+    private var scratch = [Float](repeating: 0, count: 16_384)
 
     init(chain: MasteringChain) {
         self.chain = chain
@@ -31,51 +61,64 @@ final class PreviewState: @unchecked Sendable {
         return body()
     }
 
-    var length: Int { max(original.count, processed.count) }
+    var length: Int { max(original?.count ?? 0, processed?.count ?? 0) }
+
+    /// The signal the mastering chain runs on: processed audio, or the
+    /// original while nothing has been processed.
+    private var masteringInput: PreviewSignal? { processed ?? original }
 
     /// Restarts the mastering chain so its output is aligned with `position`:
-    /// the limiter's look-ahead is pre-rolled from the processed signal.
+    /// the limiter's look-ahead is pre-rolled from the input signal.
     func primeChain() {
         chain.reset()
         let latency = chain.latencyFrames
-        guard latency > 0 else { return }
-        var preroll = slice(processed, from: position, count: latency)
-        chain.process(&preroll)
-    }
-
-    func render(into out: UnsafeMutablePointer<Float>, frames: Int) {
-        withLock {
-            guard playing else {
-                out.update(repeating: 0, count: frames)
-                return
-            }
-            // Always run the chain so switching to `mastered` is instant and
-            // its state stays continuous.
-            scratch = slice(processed, from: position + chain.latencyFrames, count: frames)
-            chain.process(&scratch)
-
-            let gain = gains[source] ?? 1
-            switch source {
-            case .original:
-                let block = slice(original, from: position, count: frames)
-                for i in 0..<frames { out[i] = block[i] * gain }
-            case .processed:
-                let block = slice(processed, from: position, count: frames)
-                for i in 0..<frames { out[i] = block[i] * gain }
-            case .mastered:
-                for i in 0..<frames { out[i] = scratch[i] * gain }
-            }
-            position += frames
-            if position >= length { playing = false }
+        guard latency > 0, let input = masteringInput else { return }
+        var preroll = [Float](repeating: 0, count: latency)
+        preroll.withUnsafeMutableBufferPointer { buffer in
+            input.copy(from: position, count: latency, into: buffer.baseAddress!)
+            chain.process(buffer)
         }
     }
 
-    private func slice(_ signal: [Float], from start: Int, count: Int) -> [Float] {
-        var block = [Float](repeating: 0, count: count)
-        guard start < signal.count else { return block }
-        let n = min(count, signal.count - start)
-        for i in 0..<n { block[i] = signal[start + i] }
-        return block
+    func render(into out: UnsafeMutablePointer<Float>, frames: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard playing, frames <= scratch.count else {
+            out.update(repeating: 0, count: frames)
+            return
+        }
+        // Always run the chain so switching to `mastered` is instant and its
+        // state stays continuous.
+        scratch.withUnsafeMutableBufferPointer { buffer in
+            let block = UnsafeMutableBufferPointer(rebasing: buffer[0..<frames])
+            if let input = masteringInput {
+                input.copy(from: position + chain.latencyFrames, count: frames, into: block.baseAddress!)
+            } else {
+                block.update(repeating: 0)
+            }
+            chain.process(block)
+
+            switch source {
+            case .original:
+                fill(out, from: original, frames: frames, gain: originalGain)
+            case .processed:
+                fill(out, from: processed ?? original, frames: frames, gain: processedGain)
+            case .mastered:
+                for i in 0..<frames { out[i] = block[i] * masteredGain }
+            }
+        }
+        position += frames
+        if position >= length { playing = false }
+    }
+
+    @inline(__always)
+    private func fill(_ out: UnsafeMutablePointer<Float>, from signal: PreviewSignal?, frames: Int, gain: Float) {
+        guard let signal else {
+            out.update(repeating: 0, count: frames)
+            return
+        }
+        signal.copy(from: position, count: frames, into: out)
+        for i in 0..<frames { out[i] *= gain }
     }
 }
 
@@ -92,34 +135,56 @@ public final class PreviewPlayer: ObservableObject {
     @Published public private(set) var position: TimeInterval = 0
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var isPlaying = false
+    @Published public private(set) var playbackError: String?
 
     let state: PreviewState
     private let engine = AVAudioEngine()
-    private var node: AVAudioSourceNode!
     private var timer: Timer?
     /// Integrated loudness per source; absent when unmeasurable (silence).
     private var loudness: [PreviewSource: Double] = [:]
-    private let format = AVAudioFormat(standardFormatWithSampleRate: Double(AudioCore.sampleRate), channels: 1)!
+    private var loadGeneration = 0
+    private static let format = AVAudioFormat(standardFormatWithSampleRate: Double(AudioCore.sampleRate), channels: 1)!
 
     public init(mastering: MasteringSettings = .default) {
         state = PreviewState(chain: MasteringChain(settings: mastering, sampleRate: AudioCore.sampleRate))
-        let state = self.state
-        node = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList in
+        let node = Self.makeSourceNode(format: Self.format, state: state)
+        engine.attach(node)
+        engine.connect(node, to: engine.mainMixerNode, format: Self.format)
+    }
+
+    /// Builds the source node outside any actor: Core Audio calls its render
+    /// block on the I/O thread, where a main-actor isolation check would trap.
+    nonisolated static func makeSourceNode(format: AVAudioFormat, state: PreviewState) -> AVAudioSourceNode {
+        AVAudioSourceNode(format: format) { @Sendable _, _, frameCount, audioBufferList in
             let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
             let out = buffers[0].mData!.assumingMemoryBound(to: Float.self)
             state.render(into: out, frames: Int(frameCount))
             return noErr
         }
-        engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: format)
     }
 
-    /// Loads both signals (converted to 48 kHz mono) and resets to the start.
-    public func load(original: URL, processed: URL?) throws {
-        let originalSignal = try Self.load48k(original)
-        let processedSignal = try processed.map(Self.load48k) ?? originalSignal
-        loudness[.original] = Self.integratedLoudness(originalSignal)
-        loudness[.processed] = Self.integratedLoudness(processedSignal)
+    /// Converts both signals to 48 kHz Float32 scratch files off the main
+    /// thread, measures their loudness, maps them and resets to the start.
+    /// A newer `load` call supersedes an older one that is still running.
+    public func load(original: URL, processed: URL?, scratchDirectory: URL) async throws {
+        loadGeneration += 1
+        let generation = loadGeneration
+        pause()
+        let prepared = try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
+            let originalOut = scratchDirectory.appendingPathComponent("preview-original.f32")
+            let processedOut = scratchDirectory.appendingPathComponent("preview-processed.f32")
+            let originalLUFS = try Self.prepare(original, to: originalOut)
+            let processedLUFS = try processed.map { try Self.prepare($0, to: processedOut) }
+            return (originalOut, originalLUFS, processed == nil ? nil : processedOut, processedLUFS)
+        }.value
+        guard generation == loadGeneration else { return }
+
+        let originalSignal = try PreviewSignal(rawFloatFile: prepared.0)
+        let processedSignal = try prepared.2.map(PreviewSignal.init(rawFloatFile:))
+        loudness = [:]
+        loudness[.original] = prepared.1
+        loudness[.processed] = prepared.3 ?? nil
         state.withLock {
             state.original = originalSignal
             state.processed = processedSignal
@@ -151,7 +216,16 @@ public final class PreviewPlayer: ObservableObject {
     }
 
     public func play() {
-        if !engine.isRunning { try? engine.start() }
+        guard state.withLock({ state.length }) > 0 else { return }
+        if !engine.isRunning {
+            do {
+                try engine.start()
+                playbackError = nil
+            } catch {
+                playbackError = error.localizedDescription
+                return
+            }
+        }
         state.withLock {
             if state.position >= state.length { state.position = 0; state.primeChain() }
             state.playing = true
@@ -196,34 +270,48 @@ public final class PreviewPlayer: ObservableObject {
     }
 
     private func updateGains() {
-        let settings = state.withLock { state.chain.settings }
-        let gainDB = state.withLock { state.chain.loudnessGainDB }
+        let (settings, gainDB) = state.withLock { (state.chain.settings, state.chain.loudnessGainDB) }
         func match(_ lufs: Double?) -> Float {
             guard let lufs else { return 1 }
             return Float(pow(10, (Self.comparisonLUFS - lufs) / 20))
         }
         let original = match(loudness[.original])
-        let processed = match(loudness[.processed])
+        let processed = loudness[.processed] == nil && state.withLock({ state.processed == nil })
+            ? original : match(loudness[.processed])
         let mastered: Float
-        if settings.loudness.enabled, loudness[.processed] != nil {
+        if settings.loudness.enabled, loudness[.processed] ?? loudness[.original] != nil {
             mastered = Float(pow(10, (Self.comparisonLUFS - settings.loudness.targetLUFS) / 20))
         } else {
             mastered = processed * Float(pow(10, -gainDB / 20))
         }
-        state.withLock { state.gains = [.original: original, .processed: processed, .mastered: mastered] }
+        state.withLock {
+            state.originalGain = original
+            state.processedGain = processed
+            state.masteredGain = mastered
+        }
     }
 
-    static func integratedLoudness(_ signal: [Float]) -> Double? {
+    /// Streams `source` to a headerless 48 kHz Float32 file and returns its
+    /// integrated loudness.
+    nonisolated static func prepare(_ source: URL, to destination: URL) throws -> Double? {
+        let reader = try MonoFileReader(url: source)
+        let resampler = reader.sampleRate == AudioCore.sampleRate
+            ? nil : try StreamingResampler(from: reader.sampleRate, to: AudioCore.sampleRate)
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: destination)
+        defer { try? handle.close() }
         var meter = LoudnessMeter(sampleRate: AudioCore.sampleRate)
-        meter.add(signal)
-        return meter.integratedLUFS
-    }
 
-    static func load48k(_ url: URL) throws -> [Float] {
-        let (samples, rate) = try readAllMono(url)
-        guard rate != AudioCore.sampleRate else { return samples }
-        let resampler = try StreamingResampler(from: rate, to: AudioCore.sampleRate)
-        return try resampler.process(samples) + resampler.flush()
+        func emit(_ block: [Float]) throws {
+            guard !block.isEmpty else { return }
+            meter.add(block)
+            try block.withUnsafeBufferPointer { try handle.write(contentsOf: Data(buffer: $0)) }
+        }
+        while let block = try reader.read(maxFrames: 65_536) {
+            try emit(try resampler?.process(block) ?? block)
+        }
+        if let resampler { try emit(try resampler.flush()) }
+        return meter.integratedLUFS
     }
 
     // MARK: Testing support
@@ -231,7 +319,7 @@ public final class PreviewPlayer: ObservableObject {
     /// Switches the engine to offline manual rendering (tests only).
     func enableManualRendering(maximumFrames: AVAudioFrameCount = 4096) throws {
         engine.stop()
-        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: maximumFrames)
+        try engine.enableManualRenderingMode(.offline, format: Self.format, maximumFrameCount: maximumFrames)
         try engine.start()
     }
 

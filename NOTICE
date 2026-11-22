@@ -21,3 +21,21 @@ Built from the unmodified upstream source by tools/build_lame.sh (one export
 removed from include/libmp3lame.sym so Apple's linker accepts it) and linked
 dynamically as libmp3lame.0.dylib, which can be replaced. See
 licenses/LAME-LGPL-2.0.txt.
+
+----------------------------------------------------------------------
+NVIDIA NemotronLabs RE-USE — speech enhancement model
+https://huggingface.co/nvidia/NVIDIA-NemotronLabs-RE-USE
+Licensed under the OpenMDW License Agreement, version 1.1 (OpenMDW-1.1).
+The weights are not distributed with MicPolish: the app downloads them at a
+pinned revision and converts them locally. Tests/Fixtures/reuse contains audio
+and reference outputs derived from NVIDIA materials under OpenMDW-1.1, and
+tools/parity/reuse_reference.py loads NVIDIA's model code at run time. The
+license text ships in the app (MicPolish_ModelStore.bundle/licenses).
+
+----------------------------------------------------------------------
+MLX (mlx, mlx-c, mlx-swift) — Copyright © 2023 Apple Inc., MIT License.
+fmt — MIT License. nlohmann/json — MIT License.
+metal-cpp — Copyright © 2023 Apple Inc., Apache License 2.0.
+swift-numerics, swift-argument-parser — Apple Inc., Apache License 2.0.
+These are statically linked; their license texts ship in the app under
+Contents/Resources/licenses.

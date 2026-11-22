@@ -79,4 +79,35 @@ final class RecordingTests: XCTestCase {
         XCTAssertEqual(original.pathExtension, "flac")
         XCTAssertGreaterThan(try MonoFileReader(url: original).frameCount, 0)
     }
+
+    func testSinkRecordsWriteFailure() throws {
+        let (format, buffers) = stereoBuffers(seconds: 0.2, sampleRate: 48_000)
+        let sink = try RecordingSink(url: dir.appendingPathComponent("f.caf"), inputFormat: format)
+        _ = try sink.finish()
+        XCTAssertNil(sink.failure)
+        XCTAssertThrowsError(try sink.append(buffers[0]))
+        XCTAssertNotNil(sink.failure)
+    }
+
+    func testRecoveryKeepsCAFWhenSessionCannotBeCreated() throws {
+        let cache = dir.appendingPathComponent("cache")
+        let recordingDir = cache.appendingPathComponent("recording")
+        try FileManager.default.createDirectory(at: recordingDir, withIntermediateDirectories: true)
+        let leftover = recordingDir.appendingPathComponent("\(UUID().uuidString).caf")
+        let writer = try MonoFileWriter(url: leftover, sampleRate: 48_000, format: .cafFloat32)
+        try writer.append([Float](repeating: 0.1, count: 48_000))
+        try writer.close()
+
+        // Sessions root inside a read-only directory: adoption must fail.
+        let locked = dir.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        let store = SessionStore(root: locked.appendingPathComponent("sessions"))
+
+        let recovered = try RecordingRecovery.recover(cacheRoot: cache, store: store)
+        XCTAssertEqual(recovered.count, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: leftover.path))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: recordingDir.path), [leftover.lastPathComponent])
+    }
 }
