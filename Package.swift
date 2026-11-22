@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .library(name: "AudioCore", targets: ["AudioCore"]),
         .library(name: "ReuseMLX", targets: ["ReuseMLX"]),
+        .library(name: "ModelStore", targets: ["ModelStore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
@@ -31,7 +32,13 @@ let package = Package(
                 .product(name: "MLXRandom", package: "mlx-swift"),
             ]
         ),
+        .target(
+            name: "ModelStore",
+            dependencies: ["ReuseMLX"],
+            resources: [.copy("Resources/licenses")]
+        ),
         .testTarget(name: "AudioCoreTests", dependencies: ["AudioCore"]),
         .testTarget(name: "ReuseMLXTests", dependencies: ["ReuseMLX"]),
+        .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
     ]
 )
