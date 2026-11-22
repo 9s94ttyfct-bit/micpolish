@@ -14,7 +14,7 @@ struct MasteringPanel: View {
     }
 
     var body: some View {
-        Card(title: "母带处理", systemImage: "slider.horizontal.3", step: 2) {
+        Card(title: "母带处理", systemImage: "slider.horizontal.3") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Text("预设").foregroundStyle(.secondary)
@@ -48,56 +48,62 @@ struct MasteringPanel: View {
                     Spacer()
                     Text("新录音会沿用你最后一次选择的设置。").font(.caption).foregroundStyle(.secondary)
                 }
-                Stage(title: "高通", enabled: binding(\.highpass.enabled)) {
-                    Knob("截止", value: binding(\.highpass.frequencyHz), range: 40...200, unit: "Hz")
-                }
-                Stage(title: "均衡", enabled: binding(\.eq.enabled)) {
-                    BandControls(name: "低架", band: binding(\.eq.lowShelf), frequency: 60...400)
-                    BandControls(name: "峰值 1", band: binding(\.eq.peak1), frequency: 100...1000)
-                    BandControls(name: "峰值 2", band: binding(\.eq.peak2), frequency: 1000...8000)
-                    BandControls(name: "高架", band: binding(\.eq.highShelf), frequency: 4000...16000)
-                }
-                Stage(title: "去齿音", enabled: binding(\.deEsser.enabled)) {
-                    Knob("频率", value: binding(\.deEsser.frequencyHz), range: 4000...9000, unit: "Hz")
-                    Knob("阈值", value: binding(\.deEsser.thresholdDB), range: -50...0, unit: "dB")
-                    Knob("比率", value: binding(\.deEsser.ratio), range: 1...10, unit: ":1")
-                }
-                Stage(title: "压缩", enabled: binding(\.compressor.enabled)) {
-                    Knob("阈值", value: binding(\.compressor.thresholdDB), range: -40...0, unit: "dB")
-                    Knob("比率", value: binding(\.compressor.ratio), range: 1...10, unit: ":1")
-                    Knob("起音", value: binding(\.compressor.attackMs), range: 1...100, unit: "ms")
-                    Knob("释放", value: binding(\.compressor.releaseMs), range: 20...1000, unit: "ms")
-                }
-                Stage(title: "响度", enabled: binding(\.loudness.enabled)) {
-                    Picker("目标", selection: binding(\.loudness.targetLUFS)) {
-                        Text("−16 LUFS 播客").tag(-16.0)
-                        Text("−14 LUFS 流媒体").tag(-14.0)
-                        Text("−23 LUFS 广播").tag(-23.0)
+                VStack(alignment: .leading, spacing: 0) {
+                    Divider()
+                    OptionRow(title: "高通", systemImage: "line.diagonal.arrow",
+                              summary: Self.hz(settings.highpass.frequencyHz), isOn: binding(\.highpass.enabled)) {
+                        Knob("截止", value: binding(\.highpass.frequencyHz), range: 40...200, unit: "Hz")
                     }
-                    .frame(width: 240)
-                }
-                Stage(title: "限幅", enabled: binding(\.limiter.enabled)) {
-                    Knob("真峰值上限", value: binding(\.limiter.ceilingDBTP), range: -6...0, unit: "dBTP")
+                    OptionRow(title: "均衡", systemImage: "slider.vertical.3",
+                              summary: [settings.eq.lowShelf, settings.eq.peak1, settings.eq.peak2, settings.eq.highShelf]
+                                  .map { String(format: "%+.1f", $0.gainDB) }.joined(separator: " / ") + " dB",
+                              isOn: binding(\.eq.enabled)) {
+                        HStack(alignment: .top, spacing: 20) {
+                            BandControls(name: "低架", band: binding(\.eq.lowShelf), frequency: 60...400)
+                            BandControls(name: "峰值 1", band: binding(\.eq.peak1), frequency: 100...1000)
+                            BandControls(name: "峰值 2", band: binding(\.eq.peak2), frequency: 1000...8000)
+                            BandControls(name: "高架", band: binding(\.eq.highShelf), frequency: 4000...16000)
+                        }
+                    }
+                    OptionRow(title: "去齿音", systemImage: "mouth",
+                              summary: "\(Self.hz(settings.deEsser.frequencyHz)) · \(Self.db(settings.deEsser.thresholdDB))",
+                              isOn: binding(\.deEsser.enabled)) {
+                        HStack(spacing: 20) {
+                            Knob("频率", value: binding(\.deEsser.frequencyHz), range: 4000...9000, unit: "Hz")
+                            Knob("阈值", value: binding(\.deEsser.thresholdDB), range: -50...0, unit: "dB")
+                            Knob("比率", value: binding(\.deEsser.ratio), range: 1...10, unit: ":1")
+                        }
+                    }
+                    OptionRow(title: "压缩", systemImage: "arrow.down.right.and.arrow.up.left",
+                              summary: "\(Self.db(settings.compressor.thresholdDB)) · \(String(format: "%.1f:1", settings.compressor.ratio))",
+                              isOn: binding(\.compressor.enabled)) {
+                        HStack(spacing: 20) {
+                            Knob("阈值", value: binding(\.compressor.thresholdDB), range: -40...0, unit: "dB")
+                            Knob("比率", value: binding(\.compressor.ratio), range: 1...10, unit: ":1")
+                            Knob("起音", value: binding(\.compressor.attackMs), range: 1...100, unit: "ms")
+                            Knob("释放", value: binding(\.compressor.releaseMs), range: 20...1000, unit: "ms")
+                        }
+                    }
+                    OptionRow(title: "响度", systemImage: "speaker.wave.2",
+                              summary: String(format: "%.0f LUFS", settings.loudness.targetLUFS), isOn: binding(\.loudness.enabled)) {
+                        Picker("目标", selection: binding(\.loudness.targetLUFS)) {
+                            Text("−16 LUFS 播客").tag(-16.0)
+                            Text("−14 LUFS 流媒体").tag(-14.0)
+                            Text("−23 LUFS 广播").tag(-23.0)
+                        }
+                        .frame(width: 260)
+                    }
+                    OptionRow(title: "限幅", systemImage: "chart.line.flattrend.xyaxis",
+                              summary: String(format: "%.1f dBTP", settings.limiter.ceilingDBTP), isOn: binding(\.limiter.enabled)) {
+                        Knob("真峰值上限", value: binding(\.limiter.ceilingDBTP), range: -6...0, unit: "dBTP")
+                    }
                 }
             }
         }
     }
-}
 
-private struct Stage<Content: View>: View {
-    let title: LocalizedStringKey
-    @Binding var enabled: Bool
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Toggle(title, isOn: $enabled).toggleStyle(.switch).frame(width: 130, alignment: .leading)
-            HStack(spacing: 16) { content }
-                .disabled(!enabled)
-                .opacity(enabled ? 1 : 0.45)
-            Spacer(minLength: 0)
-        }
-    }
+    static func hz(_ v: Double) -> String { v >= 1000 ? String(format: "%.1f kHz", v / 1000) : String(format: "%.0f Hz", v) }
+    static func db(_ v: Double) -> String { String(format: "%.0f dB", v) }
 }
 
 private struct Knob: View {

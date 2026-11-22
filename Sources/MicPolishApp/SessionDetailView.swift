@@ -8,21 +8,11 @@ import SwiftUI
 struct Card<Content: View>: View {
     let title: LocalizedStringKey
     let systemImage: String
-    var step: Int?
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                if let step {
-                    Text(verbatim: "\(step)")
-                        .font(.caption.bold())
-                        .foregroundStyle(.white)
-                        .frame(width: 20, height: 20)
-                        .background(Circle().fill(Color.accentColor))
-                }
-                Label(title, systemImage: systemImage).font(.headline)
-            }
+            Label(title, systemImage: systemImage).font(.headline)
             content
         }
         .padding(16)
@@ -32,8 +22,15 @@ struct Card<Content: View>: View {
     }
 }
 
+/// The three steps of the workflow; one is shown at a time under the preview.
+enum WorkflowStep: Int, CaseIterable, Identifiable {
+    case restore, master, export
+    var id: Int { rawValue }
+}
+
 struct SessionDetailView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var step: WorkflowStep = .restore
 
     var body: some View {
         ScrollView {
@@ -41,14 +38,87 @@ struct SessionDetailView: View {
                 if let m = model.selected {
                     Header(manifest: m)
                     PreviewPanel()
-                    ProcessPanel(manifest: m)
-                    MasteringPanel(settings: m.mastering)
-                    ExportPanel(manifest: m)
+                    StepBar(step: $step)
+                    switch step {
+                    case .restore: ProcessPanel(manifest: m)
+                    case .master: MasteringPanel(settings: m.mastering)
+                    case .export: ExportPanel(manifest: m)
+                    }
                 }
             }
             .padding(20)
             .frame(maxWidth: 1100)
             .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+/// Switches between the workflow steps; each shows whether it is done.
+private struct StepBar: View {
+    @EnvironmentObject private var model: AppModel
+    @Binding var step: WorkflowStep
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(WorkflowStep.allCases) { s in
+                let selected = s == step
+                Button { step = s } label: {
+                    HStack(spacing: 10) {
+                        ZStack {
+                            Circle().fill(selected ? Color.white : Color.accentColor.opacity(0.15))
+                            if done(s) {
+                                Image(systemName: "checkmark").font(.caption.bold())
+                            } else {
+                                Text(verbatim: "\(s.rawValue + 1)").font(.caption.bold())
+                            }
+                        }
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 24, height: 24)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(verbatim: title(s)).font(.callout.bold())
+                            Text(verbatim: subtitle(s)).font(.caption2)
+                                .foregroundStyle(selected ? .white.opacity(0.85) : .secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(selected ? .white : .primary)
+                    .background(RoundedRectangle(cornerRadius: 12)
+                        .fill(selected ? Color.accentColor : Color(nsColor: .controlBackgroundColor)))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? .clear : Color.secondary.opacity(0.2)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: title(s)))
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+
+    private func title(_ s: WorkflowStep) -> String {
+        switch s {
+        case .restore: model.tr("AI 修复", "AI Restoration")
+        case .master: model.tr("母带处理", "Mastering")
+        case .export: model.tr("导出", "Export")
+        }
+    }
+
+    private func subtitle(_ s: WorkflowStep) -> String {
+        switch s {
+        case .restore: model.tr("降噪 · 去混响 · 高频", "Noise · reverb · high band")
+        case .master: model.presetName(for: model.selected?.mastering ?? .default) ?? model.tr("自定义", "Custom")
+        case .export: (model.selected?.export.format.rawValue.uppercased() ?? "") + " · " + (model.exportFolder?.lastPathComponent ?? model.tr("会话文件夹", "Session folder"))
+        }
+    }
+
+    private func done(_ s: WorkflowStep) -> Bool {
+        switch s {
+        case .restore: model.processedURL != nil || model.selected?.lastExport != nil
+        case .master: false
+        case .export: model.processedURL == nil && model.selected?.lastExport != nil
         }
     }
 }
@@ -338,16 +408,19 @@ private struct ProcessPanel: View {
     @EnvironmentObject private var model: AppModel
     let manifest: SessionManifest
 
+    private var processing: Binding<ProcessingSettings> {
+        Binding(get: { manifest.processing }, set: { p in model.updateSelected { $0.processing = p } })
+    }
+
+    private func cutoffLabel(_ c: HighBandCutoff) -> String {
+        c.hertz.map { "\(Int($0 / 1000)) kHz" } ?? model.tr("自动", "Auto")
+    }
+
     var body: some View {
-        Card(title: "AI 修复", systemImage: "sparkles", step: 1) {
+        Card(title: "AI 修复", systemImage: "sparkles") {
             HStack {
-                Picker("模型", selection: Binding(
-                    get: { manifest.processing.reuseVariant },
-                    set: { v in model.updateSelected { $0.processing.reuseVariant = v } })) {
-                    Text(verbatim: "RE-USE").tag("reuse-nemotron")
-                    Text("RE-USE（保留笑声）").tag("reuse-nemotron-laughter")
-                }
-                .frame(width: 280)
+                Text("按顺序运行下面开启的模型。点开每一项可以看说明和参数。")
+                    .font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 if model.isProcessing {
                     Button("取消") { model.cancelProcessing() }
@@ -359,41 +432,45 @@ private struct ProcessPanel: View {
                     .disabled(model.isBusy || (model.modelState != .ready && model.modelState != .notInstalled))
                 }
             }
-            Toggle("强降噪（Inworld）", isOn: Binding(
-                get: { manifest.processing.strongDenoise },
-                set: { v in model.updateSelected { $0.processing.strongDenoise = v } }))
-                .toggleStyle(.switch)
-            Text("在 AI 修复之前先把人声从强背景噪声（音乐、人声嘈杂、风扇）里分离出来；安静环境下不需要。首次使用会下载约 256 MB 的模型。")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 12) {
-                Toggle("高频增强（LavaSR）", isOn: Binding(
-                    get: { manifest.processing.highBandEnabled },
-                    set: { v in model.updateSelected { $0.processing.highBandEnabled = v } }))
-                    .toggleStyle(.switch)
-                Picker("起始频率", selection: Binding(
-                    get: { manifest.processing.highBandCutoff },
-                    set: { c in model.updateSelected { $0.processing.highBandCutoff = c } })) {
-                    Text("自动").tag(HighBandCutoff.auto)
-                    Text(verbatim: "8 kHz").tag(HighBandCutoff.hz8000)
-                    Text(verbatim: "12 kHz").tag(HighBandCutoff.hz12000)
-                    Text(verbatim: "16 kHz").tag(HighBandCutoff.hz16000)
+            VStack(alignment: .leading, spacing: 0) {
+                Divider()
+                OptionRow(title: "强降噪（Inworld）", systemImage: "waveform.badge.minus",
+                          isOn: processing.strongDenoise) {
+                    Text("在 AI 修复之前先把人声从强背景噪声（音乐、人声嘈杂、风扇）里分离出来；安静环境下不需要。首次使用会下载约 256 MB 的模型。")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(width: 200)
-                .disabled(!manifest.processing.highBandEnabled)
-                Spacer()
+                OptionRow(title: "AI 修复（RE-USE）", systemImage: "sparkles",
+                          summary: manifest.processing.reuseVariant == "reuse-nemotron-laughter"
+                              ? model.tr("保留笑声", "Keeps laughter") : nil) {
+                    Picker("模型", selection: processing.reuseVariant) {
+                        Text(verbatim: "RE-USE").tag("reuse-nemotron")
+                        Text("RE-USE（保留笑声）").tag("reuse-nemotron-laughter")
+                    }
+                    .frame(width: 300)
+                    Text("去除噪声和房间混响，修复麦克风音色。处理完会自动切到“AI 处理后”试听。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                OptionRow(title: "高频增强（LavaSR）", systemImage: "waveform.path.ecg",
+                          summary: cutoffLabel(manifest.processing.highBandCutoff),
+                          isOn: processing.highBandEnabled) {
+                    Picker("起始频率", selection: processing.highBandCutoff) {
+                        Text("自动").tag(HighBandCutoff.auto)
+                        Text(verbatim: "8 kHz").tag(HighBandCutoff.hz8000)
+                        Text(verbatim: "12 kHz").tag(HighBandCutoff.hz12000)
+                        Text(verbatim: "16 kHz").tag(HighBandCutoff.hz16000)
+                    }
+                    .frame(width: 220)
+                    Text("在 AI 修复之后重新生成起始频率以上的高频，让声音更通透；低于起始频率的部分保持不变。“自动”按录音实际带宽决定。首次使用会下载约 56 MB 的模型。")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            Text("在 AI 修复之后重新生成起始频率以上的高频，让声音更通透；低于起始频率的部分保持不变。“自动”按录音实际带宽决定。首次使用会下载约 56 MB 的模型。")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             switch model.processing {
             case .idle:
                 if manifest.lastExport != nil, let estimate = model.estimatedProcessingSeconds {
                     Text(verbatim: model.tr("这个会话已导出过；中间文件已清理，重新调整需要再跑一次 AI（约 \(Int(estimate.rounded())) 秒）。",
                                             "This session was exported and its intermediate files were removed; adjusting it again re-runs the AI (about \(Int(estimate.rounded())) s)."))
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("去除噪声和房间混响，修复麦克风音色。处理完会自动切到“AI 处理后”试听。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             case .running(let stage, let fraction, let remaining):
@@ -416,7 +493,7 @@ private struct ExportPanel: View {
     let manifest: SessionManifest
 
     var body: some View {
-        Card(title: "导出", systemImage: "square.and.arrow.up", step: 3) {
+        Card(title: "导出", systemImage: "square.and.arrow.up") {
             HStack(spacing: 16) {
                 Picker("格式", selection: Binding(
                     get: { manifest.export.format },

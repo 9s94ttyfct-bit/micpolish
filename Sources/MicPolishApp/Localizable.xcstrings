@@ -1251,6 +1251,36 @@
           }
         }
       }
+    },
+    "始终开启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always on"
+          }
+        }
+      }
+    },
+    "按顺序运行下面开启的模型。点开每一项可以看说明和参数。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs the models switched on below, in order. Open an item for its description and settings."
+          }
+        }
+      }
+    },
+    "AI 修复（RE-USE）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI restoration (RE-USE)"
+          }
+        }
+      }
     }
   }
 }
