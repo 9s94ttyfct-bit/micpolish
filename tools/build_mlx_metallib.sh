@@ -87,9 +87,10 @@ air_files=()
 while IFS= read -r src; do
   rel="${src#${metal_root}/}"
   air="${tmp_dir}/${rel//\//_}.air"
-  # Flags mirror MLX's own kernels/CMakeLists.txt. The deployment target pins
-  # the Metal language version: the Xcode 27 toolchain's newer default rejects
-  # MLX 0.31.1's steel attention kernels.
+  # Warning and fast-math flags mirror MLX's own kernels/CMakeLists.txt.
+  # Observed: with Xcode 27's Metal toolchain and no deployment target,
+  # MLX 0.31.1's steel_attention.metal fails to compile; with
+  # -mmacosx-version-min=14.0 every kernel compiles and the tests pass.
   xcrun -sdk macosx metal \
     -x metal \
     -fno-fast-math \
