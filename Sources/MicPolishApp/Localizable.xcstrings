@@ -1,0 +1,796 @@
+{
+  "sourceLanguage": "zh-Hans",
+  "version": "1.0",
+  "strings": {
+    "AI 处理": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Processing"
+          }
+        }
+      }
+    },
+    "AI 处理后": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processed"
+          }
+        }
+      }
+    },
+    "AI 模型（共 %lld MB）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Models (%lld MB)"
+          }
+        }
+      }
+    },
+    "MacBook 麦克风校正": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacBook Mic Correction"
+          }
+        }
+      }
+    },
+    "RE-USE（保留笑声）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RE-USE (keeps laughter)"
+          }
+        }
+      }
+    },
+    "−14 LUFS 流媒体": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−14 LUFS streaming"
+          }
+        }
+      }
+    },
+    "−16 LUFS 播客": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−16 LUFS podcast"
+          }
+        }
+      }
+    },
+    "−23 LUFS 广播": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−23 LUFS broadcast"
+          }
+        }
+      }
+    },
+    "三路已按响度对齐，切换时比较的是音质而不是音量。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All three are loudness-matched, so you compare quality, not volume."
+          }
+        }
+      }
+    },
+    "下载": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download"
+          }
+        }
+      }
+    },
+    "下载模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Model"
+          }
+        }
+      }
+    },
+    "会话保存位置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Folder"
+          }
+        }
+      }
+    },
+    "低架": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low shelf"
+          }
+        }
+      }
+    },
+    "保存": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        }
+      }
+    },
+    "停止": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        }
+      }
+    },
+    "先完成 AI 处理再导出。导出后只保留原始录音和这一个成品文件。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run AI processing before exporting. After export only the original recording and this one file are kept."
+          }
+        }
+      }
+    },
+    "出错了": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong"
+          }
+        }
+      }
+    },
+    "删除": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        }
+      }
+    },
+    "压缩": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compressor"
+          }
+        }
+      }
+    },
+    "原始": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original"
+          }
+        }
+      }
+    },
+    "原始 %@ · 成品 %@%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original %1$@ · Final %2$@%3$@"
+          }
+        }
+      }
+    },
+    "去齿音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De-esser"
+          }
+        }
+      }
+    },
+    "取消": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "名称": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        }
+      }
+    },
+    "后端：MLX GPU": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend: MLX GPU"
+          }
+        }
+      }
+    },
+    "后端：MLX GPU · 剩余约 %lld 秒": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend: MLX GPU · about %lld s left"
+          }
+        }
+      }
+    },
+    "响度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loudness"
+          }
+        }
+      }
+    },
+    "在访达中显示": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
+          }
+        }
+      }
+    },
+    "均衡": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EQ"
+          }
+        }
+      }
+    },
+    "增益": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gain"
+          }
+        }
+      }
+    },
+    "处理": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process"
+          }
+        }
+      }
+    },
+    "处理后可在三路之间切换对比。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After processing you can switch between the three versions."
+          }
+        }
+      }
+    },
+    "处理失败：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing failed: %@"
+          }
+        }
+      }
+    },
+    "处理完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing complete"
+          }
+        }
+      }
+    },
+    "好": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "导入音频": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Audio"
+          }
+        }
+      }
+    },
+    "导出": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export"
+          }
+        }
+      }
+    },
+    "将当前设置存为预设…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Current Settings as Preset…"
+          }
+        }
+      }
+    },
+    "峰值 1": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peak 1"
+          }
+        }
+      }
+    },
+    "峰值 2": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peak 2"
+          }
+        }
+      }
+    },
+    "录音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record"
+          }
+        }
+      }
+    },
+    "成品": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Final"
+          }
+        }
+      }
+    },
+    "截止": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cutoff"
+          }
+        }
+      }
+    },
+    "提示：在控制中心把麦克风模式设为“标准”，避免系统预先处理声音。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tip: set Mic Mode to “Standard” in Control Center so macOS doesn’t pre-process the sound."
+          }
+        }
+      }
+    },
+    "更改…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change…"
+          }
+        }
+      }
+    },
+    "格式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        }
+      }
+    },
+    "模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        }
+      }
+    },
+    "模型下载失败：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model download failed: %@"
+          }
+        }
+      }
+    },
+    "模型许可：OpenMDW-1.1（允许商用）。下载后完全在本机运行，音频不会上传。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model license: OpenMDW-1.1 (commercial use allowed). Runs entirely on this Mac; audio is never uploaded."
+          }
+        }
+      }
+    },
+    "正在下载模型…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading model…"
+          }
+        }
+      }
+    },
+    "正在检查 AI 模型…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking AI model…"
+          }
+        }
+      }
+    },
+    "母带处理": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mastering"
+          }
+        }
+      }
+    },
+    "比率": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ratio"
+          }
+        }
+      }
+    },
+    "点左上角的录音按钮开始，或导入一个音频文件。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Record at the top left, or import an audio file."
+          }
+        }
+      }
+    },
+    "电平过高，可能削波": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Level too high, may clip"
+          }
+        }
+      }
+    },
+    "目标": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target"
+          }
+        }
+      }
+    },
+    "真峰值上限": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "True-peak ceiling"
+          }
+        }
+      }
+    },
+    "码率": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitrate"
+          }
+        }
+      }
+    },
+    "系统默认输入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System default input"
+          }
+        }
+      }
+    },
+    "给这段录音起个名字": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name this recording"
+          }
+        }
+      }
+    },
+    "试听": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listen"
+          }
+        }
+      }
+    },
+    "起音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attack"
+          }
+        }
+      }
+    },
+    "输入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input"
+          }
+        }
+      }
+    },
+    "还没有录音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recordings yet"
+          }
+        }
+      }
+    },
+    "这个会话已导出过；中间文件已清理，重新调整需要再跑一次 AI（约 %lld 秒）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session was exported and its intermediate files were cleaned up; adjusting it again re-runs the AI (about %lld s)."
+          }
+        }
+      }
+    },
+    "释放": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release"
+          }
+        }
+      }
+    },
+    "重新处理": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process Again"
+          }
+        }
+      }
+    },
+    "重试": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        }
+      }
+    },
+    "阈值": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threshold"
+          }
+        }
+      }
+    },
+    "限幅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limiter"
+          }
+        }
+      }
+    },
+    "需要下载 NVIDIA RE-USE 语音修复模型（约 39 MB）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download the NVIDIA RE-USE speech restoration model (about 39 MB)"
+          }
+        }
+      }
+    },
+    "音源": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        }
+      }
+    },
+    "预设": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presets"
+          }
+        }
+      }
+    },
+    "预设名称": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preset name"
+          }
+        }
+      }
+    },
+    "频率": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequency"
+          }
+        }
+      }
+    },
+    "高架": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High shelf"
+          }
+        }
+      }
+    },
+    "高通": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High-pass"
+          }
+        }
+      }
+    },
+    "默认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        }
+      }
+    },
+    "临时": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scratch"
+          }
+        }
+      }
+    }
+  }
+}

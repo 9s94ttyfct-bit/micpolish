@@ -97,7 +97,8 @@ public final class PreviewPlayer: ObservableObject {
     private let engine = AVAudioEngine()
     private var node: AVAudioSourceNode!
     private var timer: Timer?
-    private var loudness: [PreviewSource: Double?] = [:]
+    /// Integrated loudness per source; absent when unmeasurable (silence).
+    private var loudness: [PreviewSource: Double] = [:]
     private let format = AVAudioFormat(standardFormatWithSampleRate: Double(AudioCore.sampleRate), channels: 1)!
 
     public init(mastering: MasteringSettings = .default) {
@@ -129,6 +130,8 @@ public final class PreviewPlayer: ObservableObject {
         duration = Double(state.length) / Double(AudioCore.sampleRate)
         position = 0
         isPlaying = false
+        // Without a processed signal only the original is meaningful.
+        if processed == nil { source = .original }
         updateGains()
     }
 
@@ -199,10 +202,10 @@ public final class PreviewPlayer: ObservableObject {
             guard let lufs else { return 1 }
             return Float(pow(10, (Self.comparisonLUFS - lufs) / 20))
         }
-        let original = match(loudness[.original] ?? nil)
-        let processed = match(loudness[.processed] ?? nil)
+        let original = match(loudness[.original])
+        let processed = match(loudness[.processed])
         let mastered: Float
-        if settings.loudness.enabled, loudness[.processed] != nil, (loudness[.processed] ?? nil) != nil {
+        if settings.loudness.enabled, loudness[.processed] != nil {
             mastered = Float(pow(10, (Self.comparisonLUFS - settings.loudness.targetLUFS) / 20))
         } else {
             mastered = processed * Float(pow(10, -gainDB / 20))

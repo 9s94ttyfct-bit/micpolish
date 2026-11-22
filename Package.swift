@@ -20,6 +20,7 @@ let package = Package(
         .library(name: "Recording", targets: ["Recording"]),
         .library(name: "Preview", targets: ["Preview"]),
         .executable(name: "micpolish", targets: ["micpolish"]),
+        .executable(name: "MicPolishApp", targets: ["MicPolishApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
@@ -76,6 +77,15 @@ let package = Package(
                 "AudioCore", "ReuseMLX", "ModelStore", "Mastering", "Export", "Sessions", "Pipeline",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
+        ),
+        .executableTarget(
+            name: "MicPolishApp",
+            dependencies: [
+                "AudioCore", "ReuseMLX", "ModelStore", "Mastering", "Export", "Sessions", "Pipeline",
+                "Recording", "Preview",
+            ],
+            // Compiled into the app bundle's lproj folders by tools/package-app.sh.
+            exclude: ["Localizable.xcstrings"]
         ),
         .testTarget(name: "AudioCoreTests", dependencies: ["AudioCore"]),
         .testTarget(name: "ReuseMLXTests", dependencies: ["ReuseMLX"]),

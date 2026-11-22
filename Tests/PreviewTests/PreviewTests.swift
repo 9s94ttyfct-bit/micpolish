@@ -73,6 +73,15 @@ final class PreviewTests: XCTestCase {
         XCTAssertEqual(after[100], 0.2 * gain, accuracy: 1e-6)
     }
 
+    func testLoadingOriginalOnlyResetsSourceToOriginal() throws {
+        let url = try write("o.caf", [Float](repeating: 0.1, count: 48_000))
+        let player = PreviewPlayer()
+        try player.load(original: url, processed: url)
+        player.source = .mastered
+        try player.load(original: url, processed: nil)
+        XCTAssertEqual(player.source, .original)
+    }
+
     func testLevelMatchingAlignsLoudness() throws {
         let quiet = noise(seconds: 6, amplitude: 0.05, seed: 1)
         let loud = quiet.map { $0 * Float(pow(10, 10.0 / 20)) }
