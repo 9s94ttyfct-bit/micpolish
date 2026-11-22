@@ -166,9 +166,9 @@ final class PipelineTests: XCTestCase {
         let longPeak = MLX.Memory.peakMemory
         print("20 min @48k: \(elapsed) s, RTF \(elapsed / 1200), MLX peak \(longPeak / 1_048_576) MB (30 s input: \(shortPeak / 1_048_576) MB), RSS growth \((residentBytes() - rssBefore) / 1_048_576) MB")
         // Memory must not grow with duration (a 20-minute input peaks no higher
-        // than a 30-second one) and stays under the 3 GB ceiling.
+        // than a 30-second one) and stays under the 5 GB budget.
         XCTAssertLessThanOrEqual(Double(longPeak), Double(shortPeak) * 1.1)
-        XCTAssertLessThan(longPeak, 3 << 30)
+        XCTAssertLessThan(longPeak, 5 << 30)
         XCTAssertLessThan(residentBytes() - rssBefore, 500 << 20)
         XCTAssertEqual(try MonoFileReader(url: result.url).frameCount, 20 * 60 * 48_000)
     }

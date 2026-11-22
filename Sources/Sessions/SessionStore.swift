@@ -107,17 +107,56 @@ public final class SessionStore: @unchecked Sendable {
         try write(m, in: directory(for: m.id))
     }
 
-    /// Records a finished export and deletes any export in the other format,
-    /// so a session keeps at most one export file.
+    /// Records a finished export. For an export into the session folder, any
+    /// export in the other format is deleted, so the folder keeps at most one;
+    /// exports to an outside folder leave the session folder untouched.
     public func recordExport(format: ExportFormat, record: ExportRecord, for m: SessionManifest) throws -> SessionManifest {
         var updated = m
         updated.export.format = format
         updated.lastExport = record
-        for other in ExportFormat.allCases where other != format {
-            try? fileManager.removeItem(at: exportURL(for: m, format: other))
+        if record.directory == nil {
+            for other in ExportFormat.allCases where other != format {
+                try? fileManager.removeItem(at: exportURL(for: m, format: other))
+            }
         }
         try save(updated)
         return updated
+    }
+
+    /// Where the last export was written, if any.
+    public func lastExportURL(for m: SessionManifest) -> URL? {
+        guard let record = m.lastExport else { return nil }
+        let folder = record.directory.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? directory(for: m.id)
+        return folder.appendingPathComponent(record.fileName)
+    }
+
+    /// Renames a session: its manifest, its folder (keeping the date prefix)
+    /// and any export inside the session folder.
+    @discardableResult
+    public func rename(_ id: UUID, to newName: String) throws -> SessionManifest {
+        lock.lock()
+        defer { lock.unlock() }
+        let oldDirectory = directory(for: id)
+        var m = try readManifest(in: oldDirectory)
+        let name = Self.safeFileName(newName)
+        guard name != m.name else { return m }
+
+        for format in ExportFormat.allCases {
+            let old = oldDirectory.appendingPathComponent("\(Self.safeFileName(m.name)).\(format.rawValue)")
+            if fileManager.fileExists(atPath: old.path) {
+                try fileManager.moveItem(at: old, to: oldDirectory.appendingPathComponent("\(name).\(format.rawValue)"))
+            }
+        }
+        if var record = m.lastExport, record.directory == nil {
+            record.fileName = "\(name).\((record.fileName as NSString).pathExtension)"
+            m.lastExport = record
+        }
+        m.name = name
+        try write(m, in: oldDirectory)
+
+        let newDirectory = uniqueDirectory(name: name, date: m.createdAt)
+        try fileManager.moveItem(at: oldDirectory, to: newDirectory)
+        return m
     }
 
     public func delete(_ id: UUID) throws {

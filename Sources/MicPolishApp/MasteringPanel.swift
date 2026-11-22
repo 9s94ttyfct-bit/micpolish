@@ -14,22 +14,39 @@ struct MasteringPanel: View {
     }
 
     var body: some View {
-        GroupBox {
+        Card(title: "母带处理", systemImage: "slider.horizontal.3", step: 2) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("母带处理").font(.headline)
-                    Spacer()
-                    Menu("预设") {
+                HStack(spacing: 10) {
+                    Text("预设").foregroundStyle(.secondary)
+                    Menu {
                         Button("默认") { model.setMastering(.default) }
                         Button("MacBook 麦克风校正") { model.setMastering(.macbookMicCorrection) }
-                        Divider()
-                        ForEach(UserPresets.names(), id: \.self) { name in
-                            Button(name) { if let s = UserPresets.load(name) { model.setMastering(s) } }
+                        if !model.userPresetNames.isEmpty {
+                            Divider()
+                            ForEach(model.userPresetNames, id: \.self) { name in
+                                Button { if let s = UserPresets.load(name) { model.setMastering(s) } } label: { Text(verbatim: name) }
+                            }
                         }
                         Divider()
-                        Button("将当前设置存为预设…") { UserPresets.promptAndSave(settings) }
+                        Button("将当前设置存为预设…") {
+                            if let name = UserPresets.promptForName(model.tr("预设名称", "Preset name"),
+                                                                    save: model.tr("保存", "Save"),
+                                                                    cancel: model.tr("取消", "Cancel")) {
+                                model.savePreset(name)
+                            }
+                        }
+                        if let current = model.presetName(for: settings), model.userPresetNames.contains(current) {
+                            Button { model.deletePreset(current) } label: {
+                                Text(verbatim: model.tr("删除预设“\(current)”", "Delete preset “\(current)”"))
+                            }
+                        }
+                    } label: {
+                        Text(verbatim: model.presetName(for: settings) ?? model.tr("自定义", "Custom"))
                     }
-                    .frame(width: 120)
+                    .frame(width: 220)
+                    .accessibilityLabel("预设")
+                    Spacer()
+                    Text("新录音会沿用你最后一次选择的设置。").font(.caption).foregroundStyle(.secondary)
                 }
                 Stage(title: "高通", enabled: binding(\.highpass.enabled)) {
                     Knob("截止", value: binding(\.highpass.frequencyHz), range: 40...200, unit: "Hz")
@@ -63,7 +80,6 @@ struct MasteringPanel: View {
                     Knob("真峰值上限", value: binding(\.limiter.ceilingDBTP), range: -6...0, unit: "dBTP")
                 }
             }
-            .padding(6)
         }
     }
 }
@@ -142,16 +158,22 @@ enum UserPresets {
         UserDefaults.standard.set(all, forKey: key)
     }
 
+    static func delete(_ name: String) {
+        var all = UserDefaults.standard.dictionary(forKey: key) ?? [:]
+        all.removeValue(forKey: name)
+        UserDefaults.standard.set(all, forKey: key)
+    }
+
     @MainActor
-    static func promptAndSave(_ settings: MasteringSettings) {
+    static func promptForName(_ title: String, save: String, cancel: String) -> String? {
         let alert = NSAlert()
-        alert.messageText = "预设名称"
+        alert.messageText = title
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         alert.accessoryView = field
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "取消")
-        if alert.runModal() == .alertFirstButtonReturn, !field.stringValue.isEmpty {
-            save(settings, as: field.stringValue)
-        }
+        alert.addButton(withTitle: save)
+        alert.addButton(withTitle: cancel)
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? nil : name
     }
 }

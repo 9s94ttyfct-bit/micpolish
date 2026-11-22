@@ -136,6 +136,9 @@ public final class PreviewPlayer: ObservableObject {
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var isPlaying = false
     @Published public private(set) var playbackError: String?
+    /// Peak envelope (one value per 50 ms) of the original and processed
+    /// signals, for drawing waveforms.
+    @Published public private(set) var envelopes: [PreviewSource: [Float]] = [:]
 
     let state: PreviewState
     private let engine = AVAudioEngine()
@@ -174,17 +177,20 @@ public final class PreviewPlayer: ObservableObject {
             try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
             let originalOut = scratchDirectory.appendingPathComponent("preview-original.f32")
             let processedOut = scratchDirectory.appendingPathComponent("preview-processed.f32")
-            let originalLUFS = try Self.prepare(original, to: originalOut)
-            let processedLUFS = try processed.map { try Self.prepare($0, to: processedOut) }
-            return (originalOut, originalLUFS, processed == nil ? nil : processedOut, processedLUFS)
+            let originalPrep = try Self.prepare(original, to: originalOut)
+            let processedPrep = try processed.map { try Self.prepare($0, to: processedOut) }
+            return (originalOut, originalPrep, processed == nil ? nil : processedOut, processedPrep)
         }.value
         guard generation == loadGeneration else { return }
 
         let originalSignal = try PreviewSignal(rawFloatFile: prepared.0)
         let processedSignal = try prepared.2.map(PreviewSignal.init(rawFloatFile:))
         loudness = [:]
-        loudness[.original] = prepared.1
-        loudness[.processed] = prepared.3 ?? nil
+        loudness[.original] = prepared.1.lufs
+        loudness[.processed] = prepared.3?.lufs ?? nil
+        var shapes: [PreviewSource: [Float]] = [.original: prepared.1.envelope]
+        if let processedPrep = prepared.3 { shapes[.processed] = processedPrep.envelope }
+        envelopes = shapes
         state.withLock {
             state.original = originalSignal
             state.processed = processedSignal
@@ -292,8 +298,8 @@ public final class PreviewPlayer: ObservableObject {
     }
 
     /// Streams `source` to a headerless 48 kHz Float32 file and returns its
-    /// integrated loudness.
-    nonisolated static func prepare(_ source: URL, to destination: URL) throws -> Double? {
+    /// integrated loudness and a 50 ms peak envelope.
+    nonisolated static func prepare(_ source: URL, to destination: URL) throws -> (lufs: Double?, envelope: [Float]) {
         let reader = try MonoFileReader(url: source)
         let resampler = reader.sampleRate == AudioCore.sampleRate
             ? nil : try StreamingResampler(from: reader.sampleRate, to: AudioCore.sampleRate)
@@ -301,17 +307,31 @@ public final class PreviewPlayer: ObservableObject {
         let handle = try FileHandle(forWritingTo: destination)
         defer { try? handle.close() }
         var meter = LoudnessMeter(sampleRate: AudioCore.sampleRate)
+        let bucket = AudioCore.sampleRate / 20
+        var envelope: [Float] = []
+        var bucketPeak: Float = 0
+        var bucketFill = 0
 
         func emit(_ block: [Float]) throws {
             guard !block.isEmpty else { return }
             meter.add(block)
+            for x in block {
+                bucketPeak = max(bucketPeak, abs(x))
+                bucketFill += 1
+                if bucketFill == bucket {
+                    envelope.append(bucketPeak)
+                    bucketPeak = 0
+                    bucketFill = 0
+                }
+            }
             try block.withUnsafeBufferPointer { try handle.write(contentsOf: Data(buffer: $0)) }
         }
         while let block = try reader.read(maxFrames: 65_536) {
             try emit(try resampler?.process(block) ?? block)
         }
         if let resampler { try emit(try resampler.flush()) }
-        return meter.integratedLUFS
+        if bucketFill > 0 { envelope.append(bucketPeak) }
+        return (meter.integratedLUFS, envelope)
     }
 
     // MARK: Testing support

@@ -29,13 +29,18 @@ public struct ExportRecord: Codable, Equatable, Sendable {
     public var modelRevisions: [String: String]
     public var backend: String
     public var processingSeconds: Double
+    /// Absolute folder for exports outside the session folder; nil means the
+    /// session folder itself.
+    public var directory: String?
 
-    public init(fileName: String, exportedAt: Date, modelRevisions: [String: String], backend: String, processingSeconds: Double) {
+    public init(fileName: String, exportedAt: Date, modelRevisions: [String: String], backend: String,
+                processingSeconds: Double, directory: String? = nil) {
         self.fileName = fileName
         self.exportedAt = exportedAt
         self.modelRevisions = modelRevisions
         self.backend = backend
         self.processingSeconds = processingSeconds
+        self.directory = directory
     }
 }
 

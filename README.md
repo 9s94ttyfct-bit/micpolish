@@ -41,7 +41,7 @@ Apple Silicon Mac，macOS 14 或更新。
 
 ## 性能
 
-M4 Pro 上 RE-USE 的实时率（RTF，处理时间 ÷ 音频时长）中位数为 0.537，48 kHz 时 MLX 内存峰值 2.8 GB，与录音时长无关。完整数据见 [docs/performance.md](docs/performance.md)。
+M4 Pro 上 RE-USE 的实时率（RTF，处理时间 ÷ 音频时长）中位数为 0.537，48 kHz 时 MLX 内存峰值 3.2 GB（预算 5 GB），与录音时长无关。完整数据见 [docs/performance.md](docs/performance.md)。
 
 ## 开发
 

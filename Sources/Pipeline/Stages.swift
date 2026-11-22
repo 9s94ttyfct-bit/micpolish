@@ -4,10 +4,10 @@ import ReuseMLX
 
 /// NVIDIA RE-USE at the input's own sample rate, streamed in model windows.
 public struct ReuseStage: AudioStage {
-    /// 4 s windows with 5% overlap. At 48 kHz, 5 s windows peak at 3.2 GB of
-    /// MLX memory; 4 s windows peak at 2.8 GB at the same speed, and both are
-    /// within the model's < 10 s training clip length.
-    public static let inferenceSettings = try! InferenceSettings(chunkSeconds: 4.0, overlapPortion: 0.05)
+    /// 5 s windows with 5% overlap (SpeechLens' default): more context per
+    /// window, MLX peak 3.2 GB at 48 kHz, within the 5 GB memory budget and the
+    /// model's < 10 s training clip length.
+    public static let inferenceSettings = try! InferenceSettings(chunkSeconds: 5.0, overlapPortion: 0.05)
 
     public let id: String
     public let settingsKey: String

@@ -36,8 +36,12 @@ public final class Recorder: ObservableObject {
     @Published public private(set) var interruption: Interruption?
 
     public struct Interruption: Equatable {
+        public enum Cause: Equatable {
+            case writeFailed(String)
+            case deviceChanged
+        }
         public let session: SessionManifest?
-        public let reason: String
+        public let cause: Cause
     }
 
     /// Where finished recordings go; follows the app's current sessions folder.
@@ -49,6 +53,8 @@ public final class Recorder: ObservableObject {
     private var configurationObserver: NSObjectProtocol?
     private var configurationChanged = false
     private var stopping = false
+    /// Name given to a recording saved after an interruption.
+    public var interruptedName = "Recording (interrupted)"
 
     public init(store: SessionStore, cacheRoot: URL) {
         self.store = store
@@ -118,19 +124,19 @@ public final class Recorder: ObservableObject {
         guard isRecording, !stopping, let sink, let engine else { return }
         levelDBFS = sink.peakDBFS
         elapsed = Date().timeIntervalSince(started)
-        let reason: String?
+        let cause: Interruption.Cause?
         if let failure = sink.failure {
-            reason = "录音写入失败（\(failure.localizedDescription)），已保存出错前的部分。"
+            cause = .writeFailed(failure.localizedDescription)
         } else if configurationChanged || !engine.isRunning {
-            reason = "输入设备发生变化，录音已停止并保存。"
+            cause = .deviceChanged
         } else {
-            reason = nil
+            cause = nil
         }
-        guard let reason else { return }
+        guard let cause else { return }
         stopping = true
         Task {
-            let session = try? await stop(name: "录音（中断）")
-            interruption = Interruption(session: session, reason: reason)
+            let session = try? await stop(name: interruptedName)
+            interruption = Interruption(session: session, cause: cause)
         }
     }
 

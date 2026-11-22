@@ -167,7 +167,7 @@ Inworld 的注意力和前馈层是 ANE 的潜在候选，但其块内注意力�
 
 原则：MLX/GPU 是每个模型的基线和回退；ANE 路径是可替换的加速后端，**只在实测更快且结果达标时默认启用**，任何加载或运行失败都自动回退 MLX。
 
-- **候选 1：RE-USE 混合后端**。把 dense 编码器（前端卷积）和掩码/相位解码器（后端卷积）导出为 Core ML 包，计算单元设为 `cpuAndNeuralEngine`；30 层 Mamba 留在 MLX。块长固定（4 s @ 48 kHz，见 Plan 1 实测：5 s 窗口在 48 kHz 下 MLX 内存峰值 3.2 GB，4 s 为 2.8 GB 且速度相同），因此 Core ML 形状固定；末尾不足一块的部分补零或回退 MLX；非 48 kHz 会话不用此后端。
+- **候选 1：RE-USE 混合后端**。把 dense 编码器（前端卷积）和掩码/相位解码器（后端卷积）导出为 Core ML 包，计算单元设为 `cpuAndNeuralEngine`；30 层 Mamba 留在 MLX。块长固定（5 s @ 48 kHz；内存预算 5 GB，实测 5 s 窗口峰值 3.2 GB），因此 Core ML 形状固定；末尾不足一块的部分补零或回退 MLX；非 48 kHz 会话不用此后端。
 - **候选 2：LavaSR 的 ConvNeXt 主干**。整个主干是卷积 + 线性层，按固定块长导出为一个 Core ML 包；梅尔特征和 iSTFT 头留在 MLX/Accelerate。它比候选 1 更像 ANE 擅长的负载（没有递推），但模型本身已经很快，绝对收益可能很小。
 - **Core ML 包的产出**：开发期脚本用 coremltools 从上游 PyTorch 模型代码导出 FP16 包（来源见 §3）；首次加载时由 Core ML 在本机编译并缓存。
 - **结果门槛**（开发期在 M4 Pro 上测一次，导出的包不变就不必重测）：48 kHz、60 s 以上真实语音，与纯 MLX FP32 输出的波形相对 RMSE ≤ 1%，且盲听无可闻差异。不达标就不发布该包，对应的 ANE 选项不出现。

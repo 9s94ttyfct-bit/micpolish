@@ -1,4 +1,5 @@
 import AppKit
+import Sessions
 import SwiftUI
 
 @main
@@ -12,7 +13,8 @@ struct MicPolishApp: App {
                 .environmentObject(model)
                 .environmentObject(model.recorder)
                 .environmentObject(model.preview)
-                .frame(minWidth: 1120, minHeight: 680)
+                .environment(\.locale, model.locale)
+                .frame(minWidth: 1160, minHeight: 720)
                 .task {
                     delegate.model = model
                     await model.launch()
@@ -23,15 +25,19 @@ struct MicPolishApp: App {
                 }
         }
         .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unified)
 
         Settings {
-            SettingsView().environmentObject(model)
+            SettingsView()
+                .environmentObject(model)
+                .environment(\.locale, model.locale)
         }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
+    var pendingOpen: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if Bundle.main.bundleIdentifier == nil {
@@ -62,8 +68,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    var pendingOpen: [URL] = []
-
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { model?.quit() }
     }
@@ -71,29 +75,118 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var importing = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         NavigationSplitView {
-            SessionListView()
-                .navigationSplitViewColumnWidth(min: 220, ideal: 250)
+            SessionListView(confirmingDelete: $confirmingDelete)
+                .navigationSplitViewColumnWidth(min: 250, ideal: 280)
         } detail: {
             VStack(spacing: 0) {
-                if model.modelState != .ready {
-                    ModelBanner()
+                if model.modelState != .ready { ModelBanner() }
+                if let batch = model.batch { BatchBanner(batch: batch) }
+                Group {
+                    if model.selection.count > 1 {
+                        BatchSelectionView(confirmingDelete: $confirmingDelete)
+                    } else if model.selected != nil {
+                        SessionDetailView()
+                    } else {
+                        ContentUnavailableView("还没有录音", systemImage: "waveform.badge.mic",
+                                               description: Text("点左上角的录音按钮开始，或导入一个音频文件。"))
+                    }
                 }
-                if model.selected != nil {
-                    SessionDetailView()
-                } else {
-                    ContentUnavailableView("还没有录音", systemImage: "mic",
-                                           description: Text("点左上角的录音按钮开始，或导入一个音频文件。"))
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+        .toolbar { toolbar }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { model.importFiles(urls) }
+        }
+        .confirmationDialog(deleteTitle, isPresented: $confirmingDelete) {
+            Button("删除", role: .destructive) { model.delete(model.selection) }
+        } message: {
+            Text("原始录音和导出到会话文件夹的成品都会被删除，无法恢复。")
+        }
+        .sheet(item: $model.pendingRename) { session in
+            RenameSheet(session: session)
         }
         .alert("出错了", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("好") { model.errorMessage = nil }
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+
+    private var deleteTitle: String {
+        model.tr("删除 \(model.selection.count) 条录音？", "Delete \(model.selection.count) recording(s)?")
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button { importing = true } label: {
+                Label("导入音频", systemImage: "square.and.arrow.down")
+            }
+            .help("导入音频")
+
+            Button { model.processAndExport(model.selection) } label: {
+                Label("一键处理并导出", systemImage: "wand.and.stars")
+            }
+            .help("对所选录音依次进行 AI 处理、母带处理并导出到导出文件夹")
+            .disabled(model.selection.isEmpty || model.isBusy)
+
+            Button { model.quickExport() } label: {
+                Label("快速导出", systemImage: "square.and.arrow.up.on.square")
+            }
+            .help("把当前录音导出到导出文件夹；还没处理过的会先自动处理")
+            .disabled(model.selected == nil || model.isBusy)
+
+            Menu {
+                Picker("语言", selection: $model.language) {
+                    Text("跟随系统").tag(AppLanguage.system)
+                    Text(verbatim: "简体中文").tag(AppLanguage.zhHans)
+                    Text(verbatim: "English").tag(AppLanguage.en)
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label("语言", systemImage: "globe")
+            }
+            .help("界面语言")
+        }
+    }
+}
+
+struct RenameSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let session: SessionManifest
+    @State private var name = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("录音已保存", systemImage: "checkmark.circle.fill")
+                .font(.headline)
+                .foregroundStyle(.green)
+            Text("给这段录音起个名字").foregroundStyle(.secondary)
+            TextField("名称", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(save)
+            HStack {
+                Spacer()
+                Button("保留默认名称") { dismiss() }
+                Button("保存", action: save).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 380)
+        .onAppear { name = session.name }
+    }
+
+    private func save() {
+        if name != session.name { model.rename(session.id, to: name) }
+        dismiss()
     }
 }
 
@@ -102,7 +195,7 @@ struct ModelBanner: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "cpu")
+            Image(systemName: "cpu").font(.title3).foregroundStyle(.orange)
             switch model.modelState {
             case .checking:
                 Text("正在检查 AI 模型…")
@@ -118,7 +211,7 @@ struct ModelBanner: View {
             case .downloading(let fraction):
                 ProgressView(value: fraction) { Text("正在下载模型…") }
             case .failed(let message):
-                Text("模型下载失败：\(message)").foregroundStyle(.red)
+                Text(verbatim: model.tr("模型下载失败：\(message)", "Model download failed: \(message)")).foregroundStyle(.red)
                 Spacer()
                 Button("重试") { Task { await model.downloadModel() } }
             case .ready:
@@ -126,6 +219,26 @@ struct ModelBanner: View {
             }
         }
         .padding(12)
-        .background(.yellow.opacity(0.12))
+        .background(.orange.opacity(0.08))
+    }
+}
+
+struct BatchBanner: View {
+    @EnvironmentObject private var model: AppModel
+    let batch: BatchState
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView().controlSize(.small)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: model.tr("一键处理并导出：第 \(batch.index)/\(batch.total) 个 · \(batch.name) · \(batch.stage)",
+                                        "Process & export: \(batch.index) of \(batch.total) · \(batch.name) · \(batch.stage)"))
+                    .font(.callout)
+                ProgressView(value: (Double(batch.index - 1) + batch.fraction) / Double(batch.total))
+            }
+            Button("取消") { model.cancelBatch() }
+        }
+        .padding(12)
+        .background(.blue.opacity(0.08))
     }
 }

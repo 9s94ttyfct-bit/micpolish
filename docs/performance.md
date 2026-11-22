@@ -15,8 +15,8 @@ Command: `micpolish process speech64s.wav --output perf.m4a` (default preset), t
 | 3 | 34.78 s | 0.544 |
 
 Median RTF **0.537**: one minute of 48 kHz audio takes about 32 s. The figure includes model
-loading and Metal kernel compilation on the first window. RE-USE runs in 4 s windows with 5%
-overlap (`ReuseStage.inferenceSettings`); this is MLX on the GPU only — the Neural Engine
+loading and Metal kernel compilation on the first window. RE-USE ran in 4 s windows with 5%
+overlap for this measurement (the default is now 5 s windows, within the 5 GB memory budget) (`ReuseStage.inferenceSettings`); this is MLX on the GPU only — the Neural Engine
 backend is Plan 4. Mastering and export add a few seconds per minute of audio on the CPU.
 
 For comparison, SpeechLens reports RTF 0.375 at 48 kHz on an M1 Max (32-core GPU) with 5 s
@@ -28,9 +28,9 @@ From `PipelineTests.testTwentyMinuteInputKeepsPeakMemoryBounded` (debug build):
 
 | Window | MLX peak (48 kHz) |
 | --- | ---: |
-| 5 s | 3221 MB |
+| **5 s (used)** | **3221 MB** |
 | 4.5 s | 3130 MB |
-| **4 s (used)** | **2835 MB** |
+| 4 s | 2835 MB |
 | 3 s | 2370 MB |
 
 The peak is the same for a 30 s and a 20 min input; resident memory grew by 4 MB over the

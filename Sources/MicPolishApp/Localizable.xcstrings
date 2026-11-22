@@ -791,6 +791,336 @@
           }
         }
       }
+    },
+    "AI + 母带处理，导出的就是它": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI + mastering — this is what gets exported"
+          }
+        }
+      }
+    },
+    "AI 修复": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Restoration"
+          }
+        }
+      }
+    },
+    "AI 处理后才能切换到“AI 处理后”和“成品”。三路试听按响度对齐，比较的是音质而不是音量。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process first to unlock “Processed” and “Final”. All three are loudness-matched, so you compare quality, not volume."
+          }
+        }
+      }
+    },
+    "RE-USE 去噪去混响，未做母带": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RE-USE noise and reverb removal, before mastering"
+          }
+        }
+      }
+    },
+    "“AI 处理后”只看 AI 修复的效果（还没调 EQ、压缩和响度）；“成品”在它之上叠加下方的母带处理，用来调参数，导出的就是成品。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Processed” is the AI restoration alone (no EQ, compression or loudness yet). “Final” adds the mastering below on top of it — use it to tune the settings; it is what gets exported."
+          }
+        }
+      }
+    },
+    "一键处理并导出": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process & Export"
+          }
+        }
+      }
+    },
+    "保留默认名称": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Default Name"
+          }
+        }
+      }
+    },
+    "停止并保存": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop and save"
+          }
+        }
+      }
+    },
+    "先完成 AI 处理再导出，或用工具栏的“一键处理并导出”。导出后只保留原始录音和成品文件。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run AI processing before exporting, or use “Process & Export” in the toolbar. After export only the original recording and the final file are kept."
+          }
+        }
+      }
+    },
+    "删除所选": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Selected"
+          }
+        }
+      }
+    },
+    "原始录音和导出到会话文件夹的成品都会被删除，无法恢复。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The original recordings and any exports in their session folders will be deleted. This cannot be undone."
+          }
+        }
+      }
+    },
+    "去除噪声和房间混响，修复麦克风音色。处理完会自动切到“AI 处理后”试听。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removes noise and room reverb and repairs the mic’s tone. When it finishes, the preview switches to “Processed”."
+          }
+        }
+      }
+    },
+    "对所选录音依次进行 AI 处理、母带处理并导出到导出文件夹": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run AI processing, mastering and export for each selected recording, into the export folder"
+          }
+        }
+      }
+    },
+    "导出到": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export to"
+          }
+        }
+      }
+    },
+    "已导出": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exported"
+          }
+        }
+      }
+    },
+    "开始录音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start recording"
+          }
+        }
+      }
+    },
+    "录音已保存": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording saved"
+          }
+        }
+      }
+    },
+    "快速导出": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Export"
+          }
+        }
+      }
+    },
+    "把当前录音导出到导出文件夹；还没处理过的会先自动处理": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export the current recording to the export folder; it is processed first if needed"
+          }
+        }
+      }
+    },
+    "播放": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play"
+          }
+        }
+      }
+    },
+    "暂停": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
+          }
+        }
+      }
+    },
+    "改回会话文件夹": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Session Folder"
+          }
+        }
+      }
+    },
+    "新录音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Recording"
+          }
+        }
+      }
+    },
+    "新录音会沿用你最后一次选择的设置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New recordings start with the settings you chose last."
+          }
+        }
+      }
+    },
+    "波形": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waveform"
+          }
+        }
+      }
+    },
+    "界面语言": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface language"
+          }
+        }
+      }
+    },
+    "试听对比": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compare"
+          }
+        }
+      }
+    },
+    "语言": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language"
+          }
+        }
+      }
+    },
+    "跟随系统": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match System"
+          }
+        }
+      }
+    },
+    "重命名": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        }
+      }
+    },
+    "重命名…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename…"
+          }
+        }
+      }
+    },
+    "麦克风录到的声音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What the microphone captured"
+          }
+        }
+      }
+    },
+    "录音列表": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recordings"
+          }
+        }
+      }
     }
   }
 }
