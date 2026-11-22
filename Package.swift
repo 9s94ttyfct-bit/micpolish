@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "Sessions", targets: ["Sessions"]),
         .library(name: "Pipeline", targets: ["Pipeline"]),
         .library(name: "Recording", targets: ["Recording"]),
+        .library(name: "Preview", targets: ["Preview"]),
         .executable(name: "micpolish", targets: ["micpolish"]),
     ],
     dependencies: [
@@ -64,6 +65,11 @@ let package = Package(
             dependencies: ["AudioCore", "Sessions"],
             linkerSettings: [.linkedFramework("AVFoundation"), .linkedFramework("CoreAudio")]
         ),
+        .target(
+            name: "Preview",
+            dependencies: ["AudioCore", "Mastering"],
+            linkerSettings: [.linkedFramework("AVFoundation")]
+        ),
         .executableTarget(
             name: "micpolish",
             dependencies: [
@@ -78,6 +84,7 @@ let package = Package(
         .testTarget(name: "ExportTests", dependencies: ["Export", "AudioCore"]),
         .testTarget(name: "SessionsTests", dependencies: ["Sessions", "AudioCore", "Export"]),
         .testTarget(name: "RecordingTests", dependencies: ["Recording", "AudioCore", "Sessions"]),
+        .testTarget(name: "PreviewTests", dependencies: ["Preview", "AudioCore", "Mastering"]),
         .testTarget(
             name: "PipelineTests",
             dependencies: ["Pipeline", "AudioCore", "ReuseMLX", "Sessions", .product(name: "MLX", package: "mlx-swift")]
