@@ -3,15 +3,18 @@
 import Foundation
 
 protocol MonoWindowEnhancing: Sendable {
-    func enhanceWindow(_ samples: [Float], sampleRate: Int) async throws -> [Float]
+    func enhanceWindow(
+        _ samples: [Float], sampleRate: Int, backend: ReuseBackend
+    ) async throws -> (samples: [Float], backend: ReuseBackend)
 }
 
 extension MambaEnhancer: MonoWindowEnhancing {}
 
 /// Bounded mono stream state. The shared `MambaEnhancer` actor performs every
 /// model invocation, so sessions may coexist without concurrent model access.
-actor MambaEnhancementSession: SpeechEnhancementSession {
+actor MambaEnhancementSession: ReuseEnhancementSession {
     nonisolated let recommendedInputFrameCount: Int
+    nonisolated let requestedBackend: ReuseBackend
 
     private let enhancer: any MonoWindowEnhancing
     private let sampleRate: Int
@@ -24,11 +27,13 @@ actor MambaEnhancementSession: SpeechEnhancementSession {
     private var normalization = [Float]()
     private var chunkIndex = 0
     private var isFinished = false
+    private(set) var backendUsage = ReuseBackendUsage()
 
     init(
         enhancer: any MonoWindowEnhancing,
         sampleRate: Int,
-        settings: InferenceSettings
+        settings: InferenceSettings,
+        backend: ReuseBackend = .mlx
     ) throws {
         guard sampleRate > 0 else {
             throw InferenceError.inferenceFailed("Sample rate must be greater than zero")
@@ -48,6 +53,7 @@ actor MambaEnhancementSession: SpeechEnhancementSession {
         let stride = max(1, chunkLength - overlapLength)
 
         self.enhancer = enhancer
+        self.requestedBackend = backend
         self.sampleRate = sampleRate
         self.chunkLength = chunkLength
         self.overlapLength = overlapLength
@@ -66,11 +72,8 @@ actor MambaEnhancementSession: SpeechEnhancementSession {
         var emitted = [Float]()
         while input.count >= chunkLength && input.count > stride {
             let window = Array(input.prefix(chunkLength))
-            let enhanced = try await enhancer.enhanceWindow(window, sampleRate: sampleRate)
-            try accumulate(enhanced, isLast: false)
-            emitted.append(contentsOf: emitPrefix(stride))
+            emitted += try await process(window)
             input.removeFirst(stride)
-            chunkIndex += 1
             try Task.checkCancellation()
         }
         return emitted
@@ -83,13 +86,133 @@ actor MambaEnhancementSession: SpeechEnhancementSession {
         isFinished = true
         try Task.checkCancellation()
 
+        var emitted = try await drainPipeline()
         if !input.isEmpty {
-            let enhanced = try await enhancer.enhanceWindow(input, sampleRate: sampleRate)
+            let enhanced = try await enhanceWindow(input)
             try accumulate(enhanced, isLast: true)
             input.removeAll(keepingCapacity: false)
             chunkIndex += 1
         }
-        return emitPrefix(accumulation.count)
+        emitted += emitPrefix(accumulation.count)
+        return emitted
+    }
+
+    /// Enhances one full (non-final) window and returns the samples it completes.
+    private func process(_ window: [Float]) async throws -> [Float] {
+        if let pipeline = hybridPipeline, let accelerator = pipeline.accelerator,
+           await pipeline.hybridEligible(sampleRate: sampleRate, count: window.count) {
+            return try await pipelineStep(window, pipeline, accelerator)
+        }
+        var emitted = try await drainPipeline()
+        emitted += try complete(try await enhanceWindow(window))
+        return emitted
+    }
+
+    /// Overlap-adds the next window in order and emits what it completes.
+    private func complete(_ enhanced: [Float]) throws -> [Float] {
+        try accumulate(enhanced, isLast: false)
+        chunkIndex += 1
+        return emitPrefix(stride)
+    }
+
+    private func enhanceWindow(_ window: [Float]) async throws -> [Float] {
+        let (samples, used) = try await enhancer.enhanceWindow(
+            window, sampleRate: sampleRate, backend: requestedBackend
+        )
+        backendUsage.record(used)
+        return samples
+    }
+
+    // MARK: ANE hybrid pipeline
+    //
+    // Each full 48 kHz window passes through STFT → Core ML encoder → Mamba
+    // (MLX GPU) → Core ML decoders → iSTFT. Step n runs the Mamba stack of
+    // window n-1 on the GPU while Core ML encodes window n and decodes window
+    // n-2, so output lags input by two windows until `finish` drains the
+    // pipeline. Windows still complete strictly in order.
+
+    private struct PipelineSlot: Sendable {
+        let samples: [Float]
+        let tensor: CoreMLTensor
+    }
+
+    /// Encoded, waiting for the Mamba stack.
+    private var latentSlot: PipelineSlot?
+    /// Through the Mamba stack, waiting for the decoders.
+    private var decoderSlot: PipelineSlot?
+    private var pipelineFailed = false
+
+    private var hybridPipeline: (any HybridWindowPipelining)? {
+        guard requestedBackend == .aneHybrid, !pipelineFailed else { return nil }
+        return enhancer as? any HybridWindowPipelining
+    }
+
+    private func drainPipeline() async throws -> [Float] {
+        var emitted = [Float]()
+        while latentSlot != nil || decoderSlot != nil {
+            guard let pipeline = enhancer as? any HybridWindowPipelining, let accelerator = pipeline.accelerator else {
+                preconditionFailure("pipeline slots without a pipelining enhancer")
+            }
+            emitted += try await pipelineStep(nil, pipeline, accelerator)
+        }
+        return emitted
+    }
+
+    /// One pipeline step; `window` is nil while draining. Any Core ML or
+    /// hybrid-stage failure re-runs every window still in flight in MLX.
+    private func pipelineStep(
+        _ window: [Float]?, _ pipeline: any HybridWindowPipelining, _ accelerator: ReuseANEAccelerator
+    ) async throws -> [Float] {
+        let pendingDecode = decoderSlot
+        let pendingMamba = latentSlot
+        do {
+            let encoderInput: CoreMLTensor? = if let window {
+                try await pipeline.hybridEncoderInput(window, sampleRate: sampleRate)
+            } else {
+                nil
+            }
+            let coreML = Task.detached(priority: .userInitiated) {
+                let latent = try encoderInput.map { try accelerator.runEncoder($0) }
+                let decoded = try pendingDecode.map { try accelerator.runDecoders($0.tensor) }
+                return (latent: latent, decoded: decoded)
+            }
+            var decoderInput: CoreMLTensor?
+            do {
+                if let pendingMamba {
+                    decoderInput = try await pipeline.hybridMamba(pendingMamba.tensor)
+                }
+            } catch {
+                _ = await coreML.result
+                throw error
+            }
+            let (latent, decoded) = try await coreML.value
+            var finished: [Float]?
+            if let decoded, let pendingDecode {
+                finished = try await pipeline.hybridOutput(
+                    decoded, sampleCount: pendingDecode.samples.count, sampleRate: sampleRate
+                )
+            }
+
+            decoderSlot = decoderInput.map { PipelineSlot(samples: pendingMamba!.samples, tensor: $0) }
+            latentSlot = latent.map { PipelineSlot(samples: window!, tensor: $0) }
+            guard let finished else { return [] }
+            backendUsage.record(.aneHybrid)
+            return try complete(finished)
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            pipelineFailed = true
+            decoderSlot = nil
+            latentSlot = nil
+            await pipeline.hybridFailed(error)
+            var emitted = [Float]()
+            for samples in [pendingDecode?.samples, pendingMamba?.samples, window].compactMap({ $0 }) {
+                let (enhanced, used) = try await enhancer.enhanceWindow(samples, sampleRate: sampleRate, backend: .mlx)
+                backendUsage.record(used)
+                emitted += try complete(enhanced)
+            }
+            return emitted
+        }
     }
 
     private func accumulate(_ enhanced: [Float], isLast: Bool) throws {

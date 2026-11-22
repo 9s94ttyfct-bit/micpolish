@@ -12,7 +12,7 @@ let SE_MAMBA_BASE_SAMPLE_RATE: Int = 8000
 /// SpeechLens is a Metal-only runtime. Keep MLX graph construction and
 /// evaluation explicitly on the GPU instead of relying on the package's
 /// process- or task-default device semantics.
-private enum MLXExecutionContext {
+enum MLXExecutionContext {
     static func withGPU<Result>(_ operation: () throws -> Result) rethrows -> Result {
         try Device.withDefaultDevice(.gpu, operation)
     }
@@ -47,11 +47,20 @@ public protocol StreamingSpeechEnhancer: Sendable {
 
 /// MLX-native implementation of the SE-Mamba speech enhancement model.
 public actor MambaEnhancer: StreamingSpeechEnhancer {
-    private let model: SEMamba
+    let model: SEMamba
     public nonisolated let mode: InferenceMode
-    
-    public init(modelWeightsURL: URL, mode: InferenceMode = .standard) throws {
+    /// Core ML parts for the `.aneHybrid` backend, if loaded.
+    public nonisolated let accelerator: ReuseANEAccelerator?
+    /// The first Core ML failure; once set, every window runs in MLX.
+    public internal(set) var acceleratorFailure: String?
+
+    public init(
+        modelWeightsURL: URL,
+        mode: InferenceMode = .standard,
+        accelerator: ReuseANEAccelerator? = nil
+    ) throws {
         self.mode = mode
+        self.accelerator = accelerator
         guard FileManager.default.fileExists(atPath: modelWeightsURL.path) else {
             throw InferenceError.modelNotFound(modelWeightsURL)
         }
@@ -205,32 +214,78 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
         sampleRate: Int,
         settings: InferenceSettings
     ) throws -> any SpeechEnhancementSession {
+        try makeSession(sampleRate: sampleRate, settings: settings, backend: .mlx)
+    }
+
+    /// `.aneHybrid` runs full 48 kHz windows of `ReuseANEAccelerator.windowSamples`
+    /// through the accelerator, pipelined so Core ML overlaps the GPU Mamba
+    /// stack (`append` output then lags input by up to two windows; `finish`
+    /// returns the rest). Other rates, shorter windows (the tail), a missing
+    /// accelerator and any Core ML failure use MLX. The session reports which
+    /// backend each window used.
+    public func makeSession(
+        sampleRate: Int,
+        settings: InferenceSettings,
+        backend: ReuseBackend
+    ) throws -> any ReuseEnhancementSession {
         try MambaEnhancementSession(
             enhancer: self,
             sampleRate: sampleRate,
-            settings: settings
+            settings: settings,
+            backend: backend
         )
     }
 
     func enhanceWindow(_ samples: [Float], sampleRate: Int) throws -> [Float] {
+        try enhanceWindow(samples, sampleRate: sampleRate, backend: .mlx).samples
+    }
+
+    func enhanceWindow(
+        _ samples: [Float], sampleRate: Int, backend requested: ReuseBackend
+    ) throws -> (samples: [Float], backend: ReuseBackend) {
         try Task.checkCancellation()
         guard sampleRate > 0 else {
             throw InferenceError.inferenceFailed("Sample rate must be greater than zero")
         }
-        guard !samples.isEmpty else { return [] }
+        guard !samples.isEmpty else { return ([], .mlx) }
 
         let params = Self.scaledSTFTParams(sampleRate: sampleRate)
         ReuseLog.inference.debug(
             "Running enhancement at \(sampleRate, privacy: .public) Hz with nFFT=\(params.nFFT, privacy: .public), hop=\(params.hop, privacy: .public), win=\(params.win, privacy: .public)"
         )
-        let output = try MLXExecutionContext.withGPU {
-            try enhanceChunkSamples(samples, params: params)
+        var output: [Float]?
+        var used = ReuseBackend.mlx
+        if requested == .aneHybrid, let accelerator = hybridAccelerator(sampleRate: sampleRate, count: samples.count) {
+            do {
+                output = try MLXExecutionContext.withGPU {
+                    try enhanceChunkSamples(samples, params: params) { mag, pha in
+                        try self.model.hybridForward(mag, pha, accelerator: accelerator)
+                    }
+                }
+                used = .aneHybrid
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                hybridFailed(error)
+            }
+        }
+        if output == nil {
+            output = try MLXExecutionContext.withGPU {
+                try enhanceChunkSamples(samples, params: params) { mag, pha in self.model(mag, pha) }
+            }
         }
         try Task.checkCancellation()
-        guard output.count == samples.count else {
+        guard let output, output.count == samples.count else {
             throw InferenceError.inferenceFailed("Model window changed frame count")
         }
-        return output
+        return (output, used)
+    }
+
+    func hybridAccelerator(sampleRate: Int, count: Int) -> ReuseANEAccelerator? {
+        guard let accelerator, acceleratorFailure == nil,
+              sampleRate == ReuseANEAccelerator.sampleRate,
+              count == ReuseANEAccelerator.windowSamples else { return nil }
+        return accelerator
     }
 
     /// Runs STFT → model → iSTFT on one chunk and returns exactly
@@ -241,7 +296,8 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
     /// graph.
     private func enhanceChunkSamples(
         _ samples: [Float],
-        params: (nFFT: Int, hop: Int, win: Int)
+        params: (nFFT: Int, hop: Int, win: Int),
+        forward: (MLXArray, MLXArray) throws -> (MLXArray, MLXArray)
     ) throws -> [Float] {
         let (magIn, phaIn, frameCount) = try stftInputs(
             samples: samples,
@@ -249,9 +305,23 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
             hop: params.hop,
             win: params.win
         )
-        let fBins = params.nFFT / 2 + 1
+        let (modelOutMag, modelOutPha) = try forward(magIn, phaIn)
+        return try reconstruct(
+            modelMagnitude: modelOutMag, modelPhase: modelOutPha,
+            frameCount: frameCount, sampleCount: samples.count, params: params
+        )
+    }
 
-        let (modelOutMag, modelOutPha) = model(magIn, phaIn)
+    /// Model output (`[1, F, T]` log-magnitude and phase) → iSTFT → exactly
+    /// `sampleCount` samples.
+    func reconstruct(
+        modelMagnitude modelOutMag: MLXArray,
+        modelPhase modelOutPha: MLXArray,
+        frameCount: Int,
+        sampleCount: Int,
+        params: (nFFT: Int, hop: Int, win: Int)
+    ) throws -> [Float] {
+        let fBins = params.nFFT / 2 + 1
         if modelOutMag.shape != [1, fBins, frameCount]
             || modelOutPha.shape != [1, fBins, frameCount]
         {
@@ -266,7 +336,7 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
         MLX.eval(enhMag, modelOutPha)
 
         let padLen = params.nFFT / 2
-        let paddedLen = samples.count + 2 * padLen
+        let paddedLen = sampleCount + 2 * padLen
         let reconstructed = istft(
             mag: enhMag,
             pha: modelOutPha,
@@ -276,11 +346,11 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
             win: params.win
         )
         let trimStart = padLen
-        let trimEnd = min(trimStart + samples.count, reconstructed.count)
+        let trimEnd = min(trimStart + sampleCount, reconstructed.count)
         if trimStart < trimEnd {
             return Array(reconstructed[trimStart..<trimEnd])
         }
-        return [Float](repeating: 0, count: samples.count)
+        return [Float](repeating: 0, count: sampleCount)
     }
     /// Mirrors NVIDIA RE-USE's `make_even(base * sampleRate // baseRate)`.
     /// The integer division is intentional: at 44.1 kHz, the trained hop
