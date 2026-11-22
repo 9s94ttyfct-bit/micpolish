@@ -39,9 +39,9 @@ final class RecordingTests: XCTestCase {
 
     func testSink44k1StereoBecomes48kMono() throws {
         let (format, buffers) = stereoBuffers(seconds: 2, sampleRate: 44_100)
-        let sink = try RecordingSink(url: dir.appendingPathComponent("r.caf"), inputFormat: format)
+        let sink = try RecordingSink(url: dir.appendingPathComponent("r.caf"), inputSampleRate: Int(format.sampleRate))
         for b in buffers { try sink.append(b) }
-        let url = try sink.finish()
+        let url = try XCTUnwrap(try sink.finish())
 
         let reader = try MonoFileReader(url: url)
         XCTAssertEqual(reader.sampleRate, 48_000)
@@ -52,7 +52,7 @@ final class RecordingTests: XCTestCase {
 
     func testSinkPeakTracksInput() throws {
         let (format, buffers) = stereoBuffers(seconds: 0.2, sampleRate: 48_000)
-        let sink = try RecordingSink(url: dir.appendingPathComponent("p.caf"), inputFormat: format)
+        let sink = try RecordingSink(url: dir.appendingPathComponent("p.caf"), inputSampleRate: Int(format.sampleRate))
         try sink.append(buffers[0])
         // Mono mix of 0.25 and 0.125 peaks at 0.1875 → -14.5 dBFS.
         XCTAssertEqual(Double(sink.peakDBFS), 20 * log10(0.1875), accuracy: 0.3)
@@ -82,11 +82,19 @@ final class RecordingTests: XCTestCase {
 
     func testSinkRecordsWriteFailure() throws {
         let (format, buffers) = stereoBuffers(seconds: 0.2, sampleRate: 48_000)
-        let sink = try RecordingSink(url: dir.appendingPathComponent("f.caf"), inputFormat: format)
+        let sink = try RecordingSink(url: dir.appendingPathComponent("f.caf"), inputSampleRate: Int(format.sampleRate))
         _ = try sink.finish()
         XCTAssertNil(sink.failure)
         XCTAssertThrowsError(try sink.append(buffers[0]))
         XCTAssertNotNil(sink.failure)
+    }
+
+    /// A capture that never delivered audio leaves no file behind and nothing to adopt.
+    func testSinkWithNoAudioFinishesWithoutAFile() throws {
+        let url = dir.appendingPathComponent("empty.caf")
+        let sink = try RecordingSink(url: url, inputSampleRate: 24_000)
+        XCTAssertNil(try sink.finish())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
     func testRecoveryKeepsCAFWhenSessionCannotBeCreated() throws {

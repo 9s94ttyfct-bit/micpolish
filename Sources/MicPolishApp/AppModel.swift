@@ -169,13 +169,19 @@ final class AppModel: ObservableObject {
                 self.applyRememberedMastering(to: session.id)
                 self.select(session.id)
             }
-            switch interruption.cause {
-            case .writeFailed(let detail):
+            switch (interruption.cause, interruption.session != nil) {
+            case (.writeFailed(let detail), true):
                 self.errorMessage = self.tr("录音写入失败（\(detail)），已保存出错前的部分。",
                                             "Recording could not be written (\(detail)). The part before the error was saved.")
-            case .deviceChanged:
-                self.errorMessage = self.tr("输入设备发生变化，录音已停止并保存。",
-                                            "The input device changed. Recording stopped and was saved.")
+            case (.writeFailed(let detail), false):
+                self.errorMessage = self.tr("录音写入失败（\(detail)），没有可保存的内容。",
+                                            "Recording could not be written (\(detail)); there was nothing to save.")
+            case (.deviceLost, true):
+                self.errorMessage = self.tr("正在录音的输入设备已断开或改变了采样率，录音已停止并保存。",
+                                            "The input device being recorded disconnected or changed its sample rate. Recording stopped and was saved.")
+            case (.deviceLost, false):
+                self.errorMessage = self.tr("正在录音的输入设备已断开或改变了采样率，录音已停止，还没有录到内容。",
+                                            "The input device being recorded disconnected or changed its sample rate. Recording stopped before anything was captured.")
             }
         }
         try? Workspace.purgeAll(cacheRoot: cacheRoot)

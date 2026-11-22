@@ -120,7 +120,6 @@ struct RecordPanel: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var recorder: Recorder
     @State private var selectedInput: AudioInput?
-    @State private var inputs: [AudioInput] = []
 
     var body: some View {
         VStack(spacing: 10) {
@@ -155,7 +154,7 @@ struct RecordPanel: View {
                         Text("新录音").font(.headline)
                         Picker("输入", selection: $selectedInput) {
                             Text("系统默认输入").tag(AudioInput?.none)
-                            ForEach(inputs) { Text(verbatim: $0.name).tag(AudioInput?.some($0)) }
+                            ForEach(recorder.inputs) { Text(verbatim: $0.name).tag(AudioInput?.some($0)) }
                         }
                         .labelsHidden()
                         .controlSize(.small)
@@ -173,7 +172,10 @@ struct RecordPanel: View {
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(.background.opacity(0.6)))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
-        .onAppear { inputs = recorder.availableInputs() }
+        // A disconnected device falls back to the system default.
+        .onChange(of: recorder.inputs) { _, inputs in
+            if let selected = selectedInput, !inputs.contains(selected) { selectedInput = nil }
+        }
     }
 }
 
