@@ -1,14 +1,20 @@
 import Foundation
 
-/// The mastering signal path: high-pass → EQ → de-esser → compressor →
-/// loudness gain → true-peak limiter. Processing is per sample, so output is
+/// The mastering signal path: high-pass → studio tone → EQ → de-esser →
+/// compressor → loudness gain → true-peak limiter. Processing is per sample, so output is
 /// identical regardless of how the input is split into blocks.
 public final class MasteringChain {
     public private(set) var settings: MasteringSettings
     public var loudnessGainDB: Double = 0
+    /// Per-band studio-tone correction measured on this audio
+    /// (`StudioTone.Analysis.correction`); empty until measured.
+    public var studioToneCorrection: [Double] = [] {
+        didSet { rebuildStudioTone() }
+    }
     private let sampleRate: Double
 
     private var highpass: Biquad
+    private var studioTone: [Biquad] = []
     private var eq: [Biquad]
     private var deEsser: DeEsser
     private var compressor: Compressor
@@ -37,6 +43,7 @@ public final class MasteringChain {
         compressor.update(new.compressor)
         limiter.setCeiling(new.limiter.ceilingDBTP)
         settings = new
+        rebuildStudioTone()
     }
 
     public func reset() {
@@ -46,6 +53,7 @@ public final class MasteringChain {
         deEsser = fresh.deEsser
         compressor = fresh.compressor
         limiter = fresh.limiter
+        for i in studioTone.indices { studioTone[i].reset() }
     }
 
     public func process(_ samples: inout [Float]) {
@@ -66,12 +74,30 @@ public final class MasteringChain {
     func processBeforeGain(_ input: Double) -> Double {
         var x = input
         if settings.highpass.enabled { x = highpass.process(x) }
+        if settings.studioTone.enabled {
+            for i in studioTone.indices { x = studioTone[i].process(x) }
+        }
         if settings.eq.enabled {
             for i in eq.indices { x = eq[i].process(x) }
         }
         if settings.deEsser.enabled { x = deEsser.process(x) }
         if settings.compressor.enabled { x = compressor.process(x) }
         return x
+    }
+
+    /// Applies `studioToneCorrection` at the current amount, keeping filter state.
+    private func rebuildStudioTone() {
+        guard !studioToneCorrection.isEmpty else {
+            studioTone = []
+            return
+        }
+        let target = StudioTone.target(correction: studioToneCorrection, amount: settings.studioTone.amount)
+        let filters = StudioTone.filters(target: target, sampleRate: sampleRate)
+        if filters.count == studioTone.count {
+            for i in filters.indices { studioTone[i].setCoefficients(from: filters[i]) }
+        } else {
+            studioTone = filters
+        }
     }
 
     private static func makeHighpass(_ s: MasteringSettings.Highpass, _ fs: Double) -> Biquad {

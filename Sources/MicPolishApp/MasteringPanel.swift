@@ -54,6 +54,19 @@ struct MasteringPanel: View {
                               summary: Self.hz(settings.highpass.frequencyHz), isOn: binding(\.highpass.enabled)) {
                         Knob("截止", value: binding(\.highpass.frequencyHz), range: 40...200, unit: "Hz")
                     }
+                    OptionRow(title: "录音棚音色", systemImage: "music.mic",
+                              summary: studioToneSummary, isOn: binding(\.studioTone.enabled)) {
+                        Knob("强度", value: Binding(get: { settings.studioTone.amount * 100 },
+                                                  set: { v in var s = settings; s.studioTone.amount = v / 100; model.setMastering(s) }),
+                             range: 0...100, unit: "%")
+                        if let analysis = model.studioToneAnalysis {
+                            StudioToneBars(target: StudioTone.target(correction: analysis.correction,
+                                                                     amount: settings.studioTone.amount))
+                        }
+                        Text("测量这段人声的长期频谱，按八度频段自动 EQ，向近距离录音棚话筒录的人声靠拢（参考 VCTK 录音棚语料，按音高自动选男声或女声曲线）。每段最多 ±6 dB，只改音色，不改内容。")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     OptionRow(title: "均衡", systemImage: "slider.vertical.3",
                               summary: [settings.eq.lowShelf, settings.eq.peak1, settings.eq.peak2, settings.eq.highShelf]
                                   .map { String(format: "%+.1f", $0.gainDB) }.joined(separator: " / ") + " dB",
@@ -102,8 +115,45 @@ struct MasteringPanel: View {
         }
     }
 
+    private var studioToneSummary: String {
+        let amount = "\(Int((settings.studioTone.amount * 100).rounded()))%"
+        guard let analysis = model.studioToneAnalysis else { return amount }
+        let voice = analysis.voice == .male ? model.tr("男声", "Male voice") : model.tr("女声", "Female voice")
+        return "\(voice) · \(amount)"
+    }
+
     static func hz(_ v: Double) -> String { v >= 1000 ? String(format: "%.1f kHz", v / 1000) : String(format: "%.0f Hz", v) }
     static func db(_ v: Double) -> String { String(format: "%.0f dB", v) }
+}
+
+/// The studio-tone correction per octave band, as bars above/below 0 dB.
+private struct StudioToneBars: View {
+    let target: [Double]
+    private static let labels = ["63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 6) {
+            ForEach(target.indices, id: \.self) { i in
+                VStack(spacing: 2) {
+                    Text(verbatim: String(format: "%+.1f", target[i])).font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    ZStack {
+                        Rectangle().fill(.quaternary).frame(width: 18, height: 1)
+                        let h = CGFloat(abs(target[i]) / StudioTone.maximumDB) * 22
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(target[i] >= 0 ? Color.accentColor : Color.orange)
+                            .frame(width: 14, height: max(1, h))
+                            .offset(y: target[i] >= 0 ? -h / 2 : h / 2)
+                    }
+                    .frame(height: 46)
+                    Text(verbatim: Self.labels[i]).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: zip(Self.labels, target).map { "\($0) Hz \(String(format: "%+.1f", $1)) dB" }
+            .joined(separator: ", ")))
+    }
 }
 
 private struct Knob: View {

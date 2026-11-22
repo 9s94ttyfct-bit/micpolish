@@ -107,7 +107,11 @@ final class AppModel: ObservableObject {
     private var processingTask: Task<Void, Never>?
     private var batchTask: Task<Void, Never>?
     private var gainTask: Task<Void, Never>?
-    private var gainWork: Task<Double, Error>?
+    private var gainWork: Task<(Double, StudioTone.Analysis?), Error>?
+    /// Studio-tone analysis of the current processed audio (keyed by file and trim).
+    private var studioToneCache: (key: String, analysis: StudioTone.Analysis)?
+    /// Shown under the studio-tone option: detected voice and per-band correction.
+    @Published private(set) var studioToneAnalysis: StudioTone.Analysis?
     private var interruptionObserver: AnyCancellable?
     private var currentGain: Double = 0
     private var lastProcessingSeconds: TimeInterval = 0
@@ -357,10 +361,12 @@ final class AppModel: ObservableObject {
         preview.pause()
         processing = .idle
         processedURL = nil
+        studioToneCache = nil
+        studioToneAnalysis = nil
         exportMessage = nil
         if let previous { try? FileManager.default.removeItem(at: previewScratch(for: previous)) }
         guard let m = selected else { return }
-        preview.setMastering(m.mastering, loudnessGainDB: 0)
+        preview.setMastering(m.mastering, loudnessGainDB: 0, studioTone: [])
         preview.setRange(start: m.trim?.start, end: m.trim?.end)
         reloadPreview(m, processed: nil)
         workspaceBytes = Workspace.totalDiskUsage(cacheRoot: cacheRoot)
@@ -528,20 +534,31 @@ final class AppModel: ObservableObject {
         guard let processedURL, let m = selected, let id = selectedID else { return }
         let settings = m.mastering
         let workspace = Workspace(cacheRoot: cacheRoot, sessionID: id)
+        // Studio tone is measured once per processed audio and trim.
+        let key = "\(processedURL.path)|\(m.trim.map { "\($0.start)-\($0.end)" } ?? "")"
+        let cached = studioToneCache?.key == key ? studioToneCache?.analysis : nil
         gainTask?.cancel()
         gainWork?.cancel()
         gainTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             let work = Task.detached(priority: .utility) {
-                try Self.withTrimmed(processedURL, trim: m.trim, in: workspace) {
-                    try MasteringRenderer.measureGain(input: $0, settings: settings).gainDB
+                try Self.withTrimmed(processedURL, trim: m.trim, in: workspace) { url -> (Double, StudioTone.Analysis?) in
+                    let analysis = settings.studioTone.enabled ? try cached ?? StudioTone.analyze(url: url) : cached
+                    let gain = try MasteringRenderer.measureGain(
+                        input: url, settings: settings,
+                        studioTone: settings.studioTone.enabled ? analysis?.correction ?? [] : []).gainDB
+                    return (gain, analysis)
                 }
             }
             gainWork = work
-            guard let gain = try? await work.value, !Task.isCancelled, selectedID == id else { return }
+            guard let (gain, analysis) = try? await work.value, !Task.isCancelled, selectedID == id else { return }
             currentGain = gain
-            preview.setMastering(settings, loudnessGainDB: gain)
+            if let analysis {
+                studioToneCache = (key, analysis)
+                studioToneAnalysis = analysis
+            }
+            preview.setMastering(settings, loudnessGainDB: gain, studioTone: analysis?.correction)
         }
     }
 

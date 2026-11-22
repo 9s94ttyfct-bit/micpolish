@@ -56,3 +56,10 @@ dual-path network and offline chunk stitching). The offline checkpoint
 (inworld/voice-isolator denoiser.safetensors, pinned revision) is downloaded at
 run time. Its upstream NOTICE, including training-data attributions, ships
 with the app in licenses/Apache-2.0-Inworld.txt.
+
+----------------------------------------------------------------------
+CSTR VCTK Corpus 0.92 (https://doi.org/10.7488/ds/2645), Centre for Speech
+Technology Research, University of Edinburgh. Licensed under CC BY 4.0.
+The "studio tone" reference curves in Sources/Mastering/StudioTone.swift are
+octave-band long-term speech spectra measured from its mic2 recordings
+(tools/studio_tone/build_reference.py); no audio from the corpus is included.

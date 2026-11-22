@@ -28,10 +28,16 @@ public enum MasteringRenderer {
     /// The limiter then removes loudness on peaky material, so the full chain
     /// is re-run (without writing) and the gain corrected until the output is
     /// within 0.2 LU of the target or no longer improves.
-    public static func measureGain(input: URL, settings: MasteringSettings) throws -> (measured: Double?, gainDB: Double) {
+    ///
+    /// `studioTone` is the measured studio-tone correction for `input`; nil
+    /// measures it here when the stage is on.
+    public static func measureGain(input: URL, settings: MasteringSettings,
+                                   studioTone: [Double]? = nil) throws -> (measured: Double?, gainDB: Double) {
         guard settings.loudness.enabled else { return (nil, 0) }
+        let correction = try studioTone ?? studioToneCorrection(input: input, settings: settings)
         let reader = try MonoFileReader(url: input)
         let chain = MasteringChain(settings: settings, sampleRate: reader.sampleRate)
+        chain.studioToneCorrection = correction
         var meter = LoudnessMeter(sampleRate: reader.sampleRate)
         while let block = try reader.read(maxFrames: blockFrames) {
             try Task.checkCancellation()
@@ -43,7 +49,8 @@ public enum MasteringRenderer {
 
         guard settings.limiter.enabled else { return (measured, gain) }
         for _ in 0..<maximumRefinements {
-            guard let output = try run(input: input, settings: settings, gainDB: gain, output: nil).outputLUFS else { break }
+            guard let output = try run(input: input, settings: settings, gainDB: gain, studioTone: correction,
+                                       output: nil).outputLUFS else { break }
             let shortfall = target - output
             if abs(shortfall) <= toleranceLU || gain >= maximumGainDB { break }
             gain = min(maximumGainDB, gain + shortfall)
@@ -52,19 +59,28 @@ public enum MasteringRenderer {
     }
 
     @discardableResult
-    public static func render(input: URL, settings: MasteringSettings, output: MonoFileWriter) throws -> RenderReport {
-        let (measured, gainDB) = try measureGain(input: input, settings: settings)
-        var report = try run(input: input, settings: settings, gainDB: gainDB, output: output)
+    public static func render(input: URL, settings: MasteringSettings, output: MonoFileWriter,
+                              studioTone: [Double]? = nil) throws -> RenderReport {
+        let correction = try studioTone ?? studioToneCorrection(input: input, settings: settings)
+        let (measured, gainDB) = try measureGain(input: input, settings: settings, studioTone: correction)
+        var report = try run(input: input, settings: settings, gainDB: gainDB, studioTone: correction, output: output)
         report.measuredLUFS = measured
         return report
     }
 
+    /// The studio-tone correction for `input`, or none when the stage is off.
+    public static func studioToneCorrection(input: URL, settings: MasteringSettings) throws -> [Double] {
+        settings.studioTone.enabled ? try StudioTone.analyze(url: input).correction : []
+    }
+
     /// One full pass through the chain with a fixed gain, latency-compensated
     /// to the input's length. Writes to `output` when given.
-    static func run(input: URL, settings: MasteringSettings, gainDB: Double, output: MonoFileWriter?) throws -> RenderReport {
+    static func run(input: URL, settings: MasteringSettings, gainDB: Double, studioTone: [Double] = [],
+                    output: MonoFileWriter?) throws -> RenderReport {
         let reader = try MonoFileReader(url: input)
         let chain = MasteringChain(settings: settings, sampleRate: reader.sampleRate)
         chain.loudnessGainDB = gainDB
+        chain.studioToneCorrection = studioTone
         var meter = LoudnessMeter(sampleRate: reader.sampleRate)
         var toSkip = chain.latencyFrames
         var remaining = Int(reader.frameCount)

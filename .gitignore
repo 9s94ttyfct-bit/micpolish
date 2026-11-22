@@ -6,3 +6,4 @@ dist/
 vendor/
 .swiftpm/
 Tests/Fixtures/**/model*.safetensors
+__pycache__/

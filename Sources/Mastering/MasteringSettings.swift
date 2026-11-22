@@ -47,7 +47,20 @@ public struct MasteringSettings: Codable, Equatable, Sendable {
         public var ceilingDBTP = -1.0
     }
 
+    /// Matches the voice's long-term spectrum to a close-miked studio recording
+    /// (see `StudioTone`). `amount` scales the measured correction.
+    public struct StudioTone: Codable, Equatable, Sendable {
+        public var enabled = false
+        public var amount = 0.7
+
+        public init(enabled: Bool = false, amount: Double = 0.7) {
+            self.enabled = enabled
+            self.amount = amount
+        }
+    }
+
     public var highpass = Highpass()
+    public var studioTone = StudioTone()
     public var eq = EQ()
     public var deEsser = DeEsser()
     public var compressor = Compressor()
@@ -55,6 +68,18 @@ public struct MasteringSettings: Codable, Equatable, Sendable {
     public var limiter = Limiter()
 
     public init() {}
+
+    /// Stages added later decode as their defaults, so older sessions and presets still load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        highpass = try c.decodeIfPresent(Highpass.self, forKey: .highpass) ?? Highpass()
+        studioTone = try c.decodeIfPresent(StudioTone.self, forKey: .studioTone) ?? StudioTone()
+        eq = try c.decodeIfPresent(EQ.self, forKey: .eq) ?? EQ()
+        deEsser = try c.decodeIfPresent(DeEsser.self, forKey: .deEsser) ?? DeEsser()
+        compressor = try c.decodeIfPresent(Compressor.self, forKey: .compressor) ?? Compressor()
+        loudness = try c.decodeIfPresent(Loudness.self, forKey: .loudness) ?? Loudness()
+        limiter = try c.decodeIfPresent(Limiter.self, forKey: .limiter) ?? Limiter()
+    }
 
     public static let `default` = MasteringSettings()
 

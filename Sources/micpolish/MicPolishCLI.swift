@@ -88,6 +88,7 @@ struct Process: AsyncParsableCommand {
     @Flag(help: "Run Inworld Voice Isolator before RE-USE (heavy background noise).") var strongDenoise = false
     @Option(help: "RE-USE backend: mlx, or ane (Core ML encoder/decoders on the Neural Engine; needs tools/coreml packages).")
     var backend: ReuseBackend = .mlx
+    @Option(help: "Studio tone amount, 0...1 (off when omitted).") var studioTone: Double?
 
     func validate() throws {
         guard highBand == "off" || highBand == "auto" || Double(highBand) != nil else {
@@ -147,7 +148,15 @@ struct Process: AsyncParsableCommand {
 
         let mastered = workspace.directory.appendingPathComponent("mastered.caf")
         let writer = try MonoFileWriter(url: mastered, sampleRate: AudioCore.sampleRate, format: .cafFloat32)
-        let report = try MasteringRenderer.render(input: processed.url, settings: preset.settings, output: writer)
+        var settings = preset.settings
+        if let studioTone {
+            settings.studioTone = .init(enabled: true, amount: studioTone)
+            let analysis = try StudioTone.analyze(url: processed.url)
+            let target = StudioTone.target(correction: analysis.correction, amount: studioTone)
+            print("Studio tone: \(analysis.voice) (pitch \(analysis.medianPitchHz.map { String(format: "%.0f Hz", $0) } ?? "n/a")), band dB "
+                  + target.map { String(format: "%+.1f", $0) }.joined(separator: " "))
+        }
+        let report = try MasteringRenderer.render(input: processed.url, settings: settings, output: writer)
         try writer.close()
         try Exporter.export(from: try MonoFileReader(url: mastered),
                             options: ExportOptions(format: format, bitrateKbps: bitrate), to: outputURL)

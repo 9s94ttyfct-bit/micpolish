@@ -223,11 +223,13 @@ public final class PreviewPlayer: ObservableObject {
     /// offline renderer would apply (from `MasteringRenderer.measureGain`).
     /// While paused the chain is re-primed at the current position, so the
     /// next playback starts exactly as the offline render would; while
-    /// playing, filter state carries over to avoid clicks.
-    public func setMastering(_ settings: MasteringSettings, loudnessGainDB: Double) {
+    /// playing, filter state carries over to avoid clicks. `studioTone` is the
+    /// measured studio-tone correction; nil keeps the current one.
+    public func setMastering(_ settings: MasteringSettings, loudnessGainDB: Double, studioTone: [Double]? = nil) {
         state.withLock {
             let latencyChanged = settings.limiter.enabled != state.chain.settings.limiter.enabled
             state.chain.update(settings)
+            if let studioTone { state.chain.studioToneCorrection = studioTone }
             state.chain.loudnessGainDB = loudnessGainDB
             if latencyChanged || !state.playing { state.primeChain() }
         }

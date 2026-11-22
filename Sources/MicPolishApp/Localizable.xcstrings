@@ -1341,6 +1341,36 @@
           }
         }
       }
+    },
+    "录音棚音色": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio Tone"
+          }
+        }
+      }
+    },
+    "强度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amount"
+          }
+        }
+      }
+    },
+    "测量这段人声的长期频谱，按八度频段自动 EQ，向近距离录音棚话筒录的人声靠拢（参考 VCTK 录音棚语料，按音高自动选男声或女声曲线）。每段最多 ±6 dB，只改音色，不改内容。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Measures the long-term spectrum of this voice and EQs it, octave by octave, towards speech recorded close to a studio microphone (VCTK studio corpus; the male or female curve is picked from the pitch). At most ±6 dB per band; it changes tone only, never the content."
+          }
+        }
+      }
     }
   }
 }
