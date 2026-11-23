@@ -85,9 +85,10 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
             ]
         ),
+        .systemLibrary(name: "RecordingAtomics"),
         .target(
             name: "Recording",
-            dependencies: ["AudioCore", "Sessions"],
+            dependencies: ["AudioCore", "Sessions", "RecordingAtomics"],
             linkerSettings: [.linkedFramework("AVFoundation"), .linkedFramework("CoreAudio")]
         ),
         .target(

@@ -202,22 +202,34 @@ final class AppModel: ObservableObject {
                 self.applyRememberedMastering(to: session.id)
                 self.selectUnlessProcessing(session.id)
             }
-            switch (interruption.cause, interruption.session != nil) {
-            case (.writeFailed(let detail), true):
-                self.errorMessage = self.tr("录音写入失败（\(detail)），已保存出错前的部分。",
-                                            "Recording could not be written (\(detail)). The part before the error was saved.")
-            case (.writeFailed(let detail), false):
-                self.errorMessage = self.tr("录音写入失败（\(detail)），没有可保存的内容。",
-                                            "Recording could not be written (\(detail)); there was nothing to save.")
-            case (.deviceLost, true):
-                self.errorMessage = self.tr("正在录音的输入设备已断开或改变了采样率，录音已停止并保存。",
-                                            "The input device being recorded disconnected or changed its sample rate. Recording stopped and was saved.")
-            case (.deviceLost, false):
-                self.errorMessage = self.tr("正在录音的输入设备已断开或改变了采样率，录音已停止，还没有录到内容。",
-                                            "The input device being recorded disconnected or changed its sample rate. Recording stopped before anything was captured.")
+            let cause: (zh: String, en: String)
+            switch interruption.cause {
+            case .writeFailed(let detail):
+                cause = ("录音写入失败（\(detail)）。", "Recording could not be written (\(detail)).")
+            case .deviceLost:
+                cause = ("正在录音的输入设备已断开或无法继续使用，录音已停止。",
+                         "The input device being recorded disconnected or could no longer be used. Recording stopped.")
+            case .inputFailed(let status):
+                cause = ("正在录音的输入设备持续无法送出声音（错误 \(status)），录音已停止。",
+                         "The input device being recorded kept failing to deliver audio (error \(status)). Recording stopped.")
+            case .overrun:
+                cause = ("磁盘写入跟不上录音，有一段声音丢失，录音已停止。",
+                         "The disk could not keep up with the recording and some audio was lost. Recording stopped.")
             }
+            let outcome: (zh: String, en: String)
+            switch interruption.outcome {
+            case .saved:
+                outcome = ("在此之前录到的部分已保存。", "What was recorded up to then was saved.")
+            case .nothingCaptured:
+                outcome = ("还没有录到内容，没有保存。", "Nothing had been captured yet, so nothing was saved.")
+            case .saveFailed(let detail):
+                outcome = ("保存失败（\(detail)），但录音已保留，下次启动 MicPolish 时会自动恢复。",
+                           "Saving failed (\(detail)), but the audio was kept and will be recovered the next time MicPolish starts.")
+            }
+            self.errorMessage = self.tr(cause.zh + outcome.zh, cause.en + " " + outcome.en)
         }
         let store = store
+        let recoveredNamePrefix = tr("恢复的录音", "Recovered recording")
         let cacheRoot = cacheRoot
         let cacheLock = cacheLock
         // Only when no other MicPolish process (a second app copy, the CLI)
@@ -226,7 +238,8 @@ final class AppModel: ObservableObject {
             var recovered: [SessionManifest] = []
             cacheLock?.whileAlone {
                 try? Workspace.purgeAll(cacheRoot: cacheRoot)
-                recovered = (try? RecordingRecovery.recover(cacheRoot: cacheRoot, store: store)) ?? []
+                recovered = (try? RecordingRecovery.recover(cacheRoot: cacheRoot, store: store,
+                                                            namePrefix: recoveredNamePrefix)) ?? []
             }
             return recovered
         }.value
@@ -372,7 +385,9 @@ final class AppModel: ObservableObject {
         } catch RecorderError.nothingCaptured {
             errorMessage = tr("没有录到声音，没有保存。", "Nothing was captured, so nothing was saved.")
         } catch {
-            errorMessage = tr("保存录音失败：\(error.localizedDescription)", "Saving the recording failed: \(error.localizedDescription)")
+            // Stop keeps the capture file whenever saving fails after audio was written.
+            errorMessage = tr("保存录音失败（\(error.localizedDescription)），但录音已保留，下次启动 MicPolish 时会自动恢复。",
+                              "Saving the recording failed (\(error.localizedDescription)), but the audio was kept and will be recovered the next time MicPolish starts.")
         }
     }
 

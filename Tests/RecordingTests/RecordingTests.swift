@@ -72,21 +72,27 @@ final class RecordingTests: XCTestCase {
         try writer.close()
 
         let store = SessionStore(root: dir.appendingPathComponent("sessions"))
-        let recovered = try RecordingRecovery.recover(cacheRoot: cache, store: store)
+        let recovered = try RecordingRecovery.recover(cacheRoot: cache, store: store, namePrefix: "Recovered recording")
         XCTAssertEqual(recovered.count, 1)
+        XCTAssertTrue(recovered[0].name.hasPrefix("Recovered recording "), recovered[0].name)
         XCTAssertFalse(FileManager.default.fileExists(atPath: leftover.path))
         let original = store.originalURL(for: recovered[0])
         XCTAssertEqual(original.pathExtension, "flac")
         XCTAssertGreaterThan(try MonoFileReader(url: original).frameCount, 0)
     }
 
-    func testSinkRecordsWriteFailure() throws {
+    /// Frames, level and waveform count only audio that reached the file.
+    func testSinkRecordsWriteFailureAndCountsNothingUnwritten() throws {
         let (format, buffers) = stereoBuffers(seconds: 0.2, sampleRate: 48_000)
         let sink = try RecordingSink(url: dir.appendingPathComponent("f.caf"), inputSampleRate: Int(format.sampleRate))
         _ = try sink.finish()
         XCTAssertNil(sink.failure)
         XCTAssertThrowsError(try sink.append(buffers[0]))
+        XCTAssertThrowsError(try sink.append(buffers[1]))
         XCTAssertNotNil(sink.failure)
+        XCTAssertEqual(sink.framesWritten, 0)
+        XCTAssertTrue(sink.takeEnvelope().isEmpty)
+        XCTAssertEqual(sink.peakDBFS, -120)
     }
 
     /// A capture that never delivered audio leaves no file behind and nothing to adopt.
@@ -126,9 +132,128 @@ final class RecordingTests: XCTestCase {
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
         let store = SessionStore(root: locked.appendingPathComponent("sessions"))
 
-        let recovered = try RecordingRecovery.recover(cacheRoot: cache, store: store)
+        let recovered = try RecordingRecovery.recover(cacheRoot: cache, store: store, namePrefix: "Recovered")
         XCTAssertEqual(recovered.count, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: leftover.path))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: recordingDir.path), [leftover.lastPathComponent])
+    }
+
+    /// The FLAC is shorter than the capture (as after a failed final flush):
+    /// the CAF, the only complete copy, stays and no session is created.
+    func testRecoveryKeepsCAFWhenFLACIsShort() throws {
+        let caf = dir.appendingPathComponent("short.caf")
+        let writer = try MonoFileWriter(url: caf, sampleRate: 48_000, format: .cafFloat32)
+        try writer.append([Float](repeating: 0.1, count: 48_000))
+        try writer.close()
+        let store = SessionStore(root: dir.appendingPathComponent("sessions"))
+
+        XCTAssertThrowsError(try RecordingRecovery.adopt(caf: caf, name: "x", store: store) { reader, flac in
+            let out = try MonoFileWriter(url: flac, sampleRate: reader.sampleRate, format: .flac24)
+            try out.append(try XCTUnwrap(try reader.read(maxFrames: 24_000)))
+            try out.close()
+        }) { error in
+            guard case RecordingRecoveryError.incompleteConversion(48_000, 24_000) = error else {
+                return XCTFail("unexpected error \(error)")
+            }
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: caf.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: caf.deletingPathExtension().appendingPathExtension("flac").path))
+        XCTAssertEqual(try store.list().count, 0)
+    }
+
+    /// Every sample arrives once and in order while producer and consumer
+    /// run concurrently and the ring wraps thousands of times.
+    func testRingPreservesOrderAcrossWraparoundUnderConcurrency() {
+        let ring = SampleRing(minimumCapacity: 1024)
+        let total = 1 << 21                       // exactly representable as Float
+        let producer = Thread {
+            var next = 0
+            var chunk = [Float](repeating: 0, count: 700)
+            var size = 1
+            while next < total {
+                size = size % 699 + 1               // varying sizes, both sides of the wrap
+                let n = min(size, total - next)
+                for i in 0..<n { chunk[i] = Float(next + i) }
+                let ok = chunk.withUnsafeBufferPointer { ring.write(UnsafeBufferPointer(rebasing: $0[0..<n])) }
+                if ok { next += n }
+            }
+        }
+        producer.start()
+        var expected = 0
+        var out = [Float](repeating: 0, count: 333)
+        var mismatch: (Int, Float)?
+        while expected < total {
+            let n = out.withUnsafeMutableBufferPointer { ring.read(into: $0) }
+            for i in 0..<n where mismatch == nil && out[i] != Float(expected + i) {
+                mismatch = (expected + i, out[i])
+            }
+            expected += n
+        }
+        XCTAssertNil(mismatch.map { "sample \($0.0) read as \($0.1)" })
+        XCTAssertEqual(expected, total)
+    }
+
+    /// A buffer that does not fit is dropped whole and counted, never written partially.
+    func testRingReportsOverflow() {
+        let ring = SampleRing(minimumCapacity: 8)
+        XCTAssertEqual(ring.capacity, 8)
+        let six: [Float] = [1, 2, 3, 4, 5, 6]
+        XCTAssertTrue(six.withUnsafeBufferPointer { ring.write($0) })
+        XCTAssertFalse([Float](repeating: 9, count: 4).withUnsafeBufferPointer { ring.write($0) })
+        XCTAssertEqual(ring.droppedFrames, 4)
+        var out = [Float](repeating: 0, count: 16)
+        XCTAssertEqual(out.withUnsafeMutableBufferPointer { ring.read(into: $0) }, 6)
+        XCTAssertEqual(Array(out[0..<6]), six)
+        XCTAssertTrue([Float](repeating: 9, count: 4).withUnsafeBufferPointer { ring.write($0) })
+        XCTAssertEqual(ring.droppedFrames, 4)
+    }
+
+    /// The writer thread drains everything, including what arrives just
+    /// before stop, while a separate thread produces.
+    func testWriterThreadWritesEveryFrameBeforeFinishing() throws {
+        let ring = SampleRing(minimumCapacity: 48_000 * 10)
+        let sink = try RecordingSink(url: dir.appendingPathComponent("w.caf"), input: ring, inputSampleRate: 48_000)
+        sink.startWriting()
+        let chunk = [Float](repeating: 0.2, count: 480)
+        let produced = DispatchSemaphore(value: 0)
+        Thread {
+            for _ in 0..<500 { chunk.withUnsafeBufferPointer { _ = ring.write($0) } }
+            produced.signal()
+        }.start()
+        produced.wait()
+        let url = try XCTUnwrap(try sink.finish())
+        XCTAssertEqual(ring.droppedFrames, 0)
+        XCTAssertEqual(sink.framesWritten, 240_000)
+        XCTAssertEqual(try MonoFileReader(url: url).frameCount, 240_000)
+    }
+
+    /// Capture rebuilt at a new device rate continues the same file without
+    /// losing the audio buffered at the old rate.
+    func testSinkSwitchesInputRateWithoutLosingAudio() throws {
+        let first = SampleRing(minimumCapacity: 1 << 17)
+        let sink = try RecordingSink(url: dir.appendingPathComponent("s.caf"), input: first, inputSampleRate: 48_000)
+        let second = SampleRing(minimumCapacity: 1 << 17)
+        _ = [Float](repeating: 0.1, count: 48_000).withUnsafeBufferPointer { first.write($0) }
+        try sink.switchInput(to: second, sampleRate: 24_000)
+        _ = [Float](repeating: 0.1, count: 24_000).withUnsafeBufferPointer { second.write($0) }
+        sink.drain()
+        let url = try XCTUnwrap(try sink.finish())
+        XCTAssertNil(sink.failure)
+        XCTAssertEqual(Double(try MonoFileReader(url: url).frameCount) / 48_000, 2.0, accuracy: 0.01)
+    }
+}
+
+extension RecordingSink {
+    /// A sink reading its own ring, for tests that feed it directly.
+    convenience init(url: URL, inputSampleRate: Int) throws {
+        try self.init(url: url, input: SampleRing(minimumCapacity: 1 << 16), inputSampleRate: inputSampleRate)
+    }
+
+    /// Pushes `buffer` through the ring and writes it, as capture and the
+    /// writer thread would; throws the sink's failure.
+    func append(_ buffer: AVAudioPCMBuffer) throws {
+        input.write(UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList), frames: Int(buffer.frameLength))
+        drain()
+        if let failure { throw failure }
     }
 }

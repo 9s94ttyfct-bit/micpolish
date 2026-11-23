@@ -31,8 +31,11 @@ public enum RecorderError: Error, LocalizedError {
 /// Captures one concrete input device (the chosen one, or the default input at
 /// the moment recording starts) into `<cacheRoot>/recording/<uuid>.caf`, then
 /// converts it to FLAC and hands it to the session store. Other devices
-/// connecting or becoming the default do not affect a running recording; only
-/// the recorded device disconnecting or changing its sample rate stops it.
+/// connecting or becoming the default do not affect a running recording. When
+/// the recorded device changes its sample rate (a Bluetooth headset switching
+/// profile as input starts) capture is rebuilt at the new rate into the same
+/// file; the recording stops when the device disconnects, keeps failing to
+/// deliver audio, or audio has to be dropped because the disk cannot keep up.
 @MainActor
 public final class Recorder: ObservableObject {
     @Published public private(set) var isRecording = false
@@ -44,18 +47,36 @@ public final class Recorder: ObservableObject {
     public static let liveEnvelopeCapacity = 400
     /// Input devices, kept current as devices connect and disconnect.
     @Published public private(set) var inputs: [AudioInput] = []
-    /// Set when capture stopped on its own (disk full, input device lost);
-    /// the audio captured up to that point is saved as a session.
+    /// Set when capture stopped on its own (disk full, input device lost or
+    /// failing, audio dropped); the audio captured up to that point is saved
+    /// as a session.
     @Published public private(set) var interruption: Interruption?
 
     public struct Interruption: Equatable {
         public enum Cause: Equatable {
+            /// Writing the recording failed (usually a full disk).
             case writeFailed(String)
+            /// The input device disconnected, or capture could not follow its
+            /// new sample rate.
             case deviceLost
+            /// The input device kept failing to deliver audio (Core Audio status).
+            case inputFailed(OSStatus)
+            /// The disk could not keep up and audio had to be dropped.
+            case overrun
         }
-        /// nil when nothing had been captured yet (or saving failed).
-        public let session: SessionManifest?
+        public enum Outcome: Equatable {
+            case saved(SessionManifest)
+            /// No audio had been written yet; nothing was kept.
+            case nothingCaptured
+            /// Saving failed (the error's description). The capture file stays
+            /// in the cache and is recovered as a session on the next launch.
+            case saveFailed(String)
+        }
         public let cause: Cause
+        public let outcome: Outcome
+        public var session: SessionManifest? {
+            if case .saved(let session) = outcome { session } else { nil }
+        }
     }
 
     /// Where finished recordings go; follows the app's current sessions folder.
@@ -64,6 +85,10 @@ public final class Recorder: ObservableObject {
     private var capture: DeviceCapture?
     private var sink: RecordingSink?
     private var timer: Timer?
+    /// Captures rebuilt after rate changes during the current recording.
+    private var rebuilds = 0
+    /// More rebuilds than this means the device keeps changing; it is treated as lost.
+    private static let maxRebuilds = 5
     private var devicesListener: AudioObjectPropertyListenerBlock?
     /// Name given to a recording saved after an interruption.
     public var interruptedName = "Recording (interrupted)"
@@ -104,24 +129,19 @@ public final class Recorder: ObservableObject {
         let directory = cacheRoot.appendingPathComponent("recording", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("\(UUID().uuidString).caf")
-        // The sink is created once the device's rate is known; the render
-        // callback reaches it through this box.
-        let box = SinkBox()
-        let capture = try DeviceCapture(deviceID: deviceID) { buffers, frames in
-            // A write error is recorded in the sink and reported by `tick`.
-            try? box.sink?.append(buffers, frames: frames)
-        }
-        let sink = try RecordingSink(url: url, inputSampleRate: Int(capture.sampleRate.rounded()))
-        box.sink = sink
+        let capture = try DeviceCapture(deviceID: deviceID)
+        let sink = try RecordingSink(url: url, input: capture.ring, inputSampleRate: Int(capture.sampleRate.rounded()))
         do {
             try capture.start()
         } catch {
-            _ = try? sink.finish()
+            sink.discard()
             throw error
         }
+        sink.startWriting()
 
         self.capture = capture
         self.sink = sink
+        rebuilds = 0
         elapsed = 0
         liveEnvelope = []
         interruption = nil
@@ -130,11 +150,6 @@ public final class Recorder: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick(started: started) }
         }
-    }
-
-    /// Lets the render callback reach a sink created after the capture unit.
-    private final class SinkBox: @unchecked Sendable {
-        var sink: RecordingSink?
     }
 
     private func tick(started: Date) {
@@ -152,6 +167,13 @@ public final class Recorder: ObservableObject {
             cause = .writeFailed(failure.localizedDescription)
         } else if capture.deviceLost {
             cause = .deviceLost
+        } else if capture.ring.droppedFrames > 0 {
+            cause = .overrun
+        } else if capture.rateChanged {
+            // Before render failures: a rate switch is what makes renders fail.
+            cause = followRateChange(of: capture, into: sink)
+        } else if let status = capture.renderFailure {
+            cause = .inputFailed(status)
         } else {
             cause = nil
         }
@@ -162,8 +184,35 @@ public final class Recorder: ObservableObject {
         guard let ended = endCapture() else { return }
         let name = interruptedName
         Task {
-            let session = try? await save(ended, name: name)
-            interruption = Interruption(session: session, cause: cause)
+            let outcome: Interruption.Outcome
+            do {
+                outcome = .saved(try await save(ended, name: name))
+            } catch RecorderError.nothingCaptured {
+                outcome = .nothingCaptured
+            } catch {
+                outcome = .saveFailed(error.localizedDescription)
+            }
+            interruption = Interruption(cause: cause, outcome: outcome)
+        }
+    }
+
+    /// Rebuilds capture at the device's new nominal rate and continues the
+    /// same file: the AUHAL cannot convert input rates, so ignoring the change
+    /// would record at the wrong speed. Returns the cause to stop with when
+    /// that is not possible.
+    private func followRateChange(of old: DeviceCapture, into sink: RecordingSink) -> Interruption.Cause? {
+        guard rebuilds < Self.maxRebuilds else { return .deviceLost }
+        rebuilds += 1
+        do {
+            let replacement = try DeviceCapture(deviceID: old.deviceID)
+            old.stop()
+            if old.ring.droppedFrames > 0 { return .overrun }
+            try sink.switchInput(to: replacement.ring, sampleRate: Int(replacement.sampleRate.rounded()))
+            try replacement.start()
+            capture = replacement
+            return nil
+        } catch {
+            return .deviceLost
         }
     }
 
@@ -174,17 +223,20 @@ public final class Recorder: ObservableObject {
         return try await save(sink, name: name)
     }
 
+    /// Finishes the file and adopts it, off the main actor: the writer
+    /// thread's last drain and the FLAC conversion touch the disk.
     private func save(_ sink: RecordingSink, name: String) async throws -> SessionManifest {
-        guard let caf = try sink.finish() else { throw RecorderError.nothingCaptured }
         let store = store
         return try await Task.detached {
-            try RecordingRecovery.adopt(caf: caf, name: name, store: store)
+            guard let caf = try sink.finish() else { throw RecorderError.nothingCaptured }
+            return try RecordingRecovery.adopt(caf: caf, name: name, store: store)
         }.value
     }
 
     /// Stops capture and deletes everything recorded; no session is created.
     public func discard() {
-        endCapture()?.discard()
+        guard let sink = endCapture() else { return }
+        Task.detached { sink.discard() }
     }
 
     /// Stops the device and resets the published state; returns the sink of
