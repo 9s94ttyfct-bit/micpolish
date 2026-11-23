@@ -158,9 +158,13 @@ public final class Recorder: ObservableObject {
             cause = nil
         }
         guard let cause else { return }
-        stopping = true
+        // End capture right here, on the main actor, so a stop or discard the
+        // user triggers meanwhile finds nothing left to stop and this
+        // interruption is reported exactly once, for the recording it ended.
+        guard let ended = endCapture() else { return }
+        let name = interruptedName
         Task {
-            let session = try? await stop(name: interruptedName)
+            let session = try? await save(ended, name: name)
             interruption = Interruption(session: session, cause: cause)
         }
     }
@@ -169,6 +173,10 @@ public final class Recorder: ObservableObject {
     /// `nothingCaptured` (and keeps no file) when no audio arrived.
     public func stop(name: String) async throws -> SessionManifest {
         guard let sink = endCapture() else { throw RecorderError.notRecording }
+        return try await save(sink, name: name)
+    }
+
+    private func save(_ sink: RecordingSink, name: String) async throws -> SessionManifest {
         guard let caf = try sink.finish() else { throw RecorderError.nothingCaptured }
         let store = store
         return try await Task.detached {
