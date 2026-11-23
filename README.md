@@ -31,10 +31,9 @@ Apple Silicon Mac，macOS 14 或更新。
 
 ## 安装
 
-1. 构建：`tools/package-app.sh`（需要 Xcode 与 Metal Toolchain：`xcodebuild -downloadComponent MetalToolchain`）。
-2. 把 `dist/MicPolish.app` 拖到“应用程序”。
-3. 应用是 ad-hoc 签名，第一次打开时 macOS 会拦截：在访达里右键 → 打开，或在“系统设置 › 隐私与安全性”里点“仍要打开”。
-4. 首次使用会下载 RE-USE 模型（约 37 MB），校验 SHA-256 后在本机转换为 MLX 格式，存放在 `~/Library/Application Support/MicPolish/models/`。
+1. 从 [Releases](https://github.com/9s94ttyfct-bit/micpolish/releases) 下载 `MicPolish-<版本>-macOS-arm64.zip`，解压后把 `MicPolish.app` 拖到“应用程序”。也可以自己构建：`tools/package-app.sh`（需要 Xcode 与 Metal Toolchain：`xcodebuild -downloadComponent MetalToolchain`），产物在 `dist/MicPolish.app`。
+2. 应用是 ad-hoc 签名（没有 Apple 开发者证书，也没有公证），第一次打开时 macOS 会拦截：在“系统设置 › 隐私与安全性”里点“仍要打开”；或者在终端运行 `xattr -dr com.apple.quarantine /Applications/MicPolish.app` 后再打开。
+3. 首次使用会下载 RE-USE 模型（约 37 MB），校验 SHA-256 后在本机转换为 MLX 格式，存放在 `~/Library/Application Support/MicPolish/models/`。
 
 ## 存储位置
 
