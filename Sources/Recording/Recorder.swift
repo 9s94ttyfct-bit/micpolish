@@ -64,7 +64,6 @@ public final class Recorder: ObservableObject {
     private var capture: DeviceCapture?
     private var sink: RecordingSink?
     private var timer: Timer?
-    private var stopping = false
     private var devicesListener: AudioObjectPropertyListenerBlock?
     /// Name given to a recording saved after an interruption.
     public var interruptedName = "Recording (interrupted)"
@@ -126,7 +125,6 @@ public final class Recorder: ObservableObject {
         elapsed = 0
         liveEnvelope = []
         interruption = nil
-        stopping = false
         isRecording = true
         let started = Date()
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -140,7 +138,7 @@ public final class Recorder: ObservableObject {
     }
 
     private func tick(started: Date) {
-        guard isRecording, !stopping, let sink, let capture else { return }
+        guard isRecording, let sink, let capture else { return }
         levelDBFS = sink.peakDBFS
         elapsed = Date().timeIntervalSince(started)
         let buckets = sink.takeEnvelope()
