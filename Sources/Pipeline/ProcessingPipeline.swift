@@ -14,8 +14,10 @@ public struct PipelineProgress: Sendable {
 
 /// Runs stages in order inside a session workspace. Each stage output is
 /// cached as `<stage>-<key>.caf`, where the key chains the upstream key, the
-/// stage id and its settings. Output is written as `.partial.caf` and renamed
-/// only on success, so a cancelled or failed stage is never reused.
+/// stage id and its settings. Output is written to a partial file unique to
+/// this run and renamed only on success, so a cancelled or failed stage is
+/// never reused and a run still winding down after cancellation cannot
+/// delete the partial of a newer run.
 public actor ProcessingPipeline {
     private let stages: [any AudioStage]
     private let workspace: Workspace
@@ -30,7 +32,6 @@ public actor ProcessingPipeline {
         progress: @Sendable @escaping (PipelineProgress) -> Void
     ) async throws -> StageIO {
         try workspace.create()
-        try removePartials()
 
         let reader = try MonoFileReader(url: original)
         var current = StageIO(url: original, sampleRate: reader.sampleRate, cacheKey: try Self.originalKey(original))
@@ -45,7 +46,7 @@ public actor ProcessingPipeline {
             let next = StageIO(url: final, sampleRate: stage.outputSampleRate(forInput: current.sampleRate), cacheKey: key)
 
             if !FileManager.default.fileExists(atPath: final.path) {
-                let partial = workspace.directory.appendingPathComponent("\(stage.id)-\(key).partial.caf")
+                let partial = workspace.directory.appendingPathComponent("\(stage.id)-\(key)-\(UUID().uuidString).partial.caf")
                 let report: @Sendable (Double) -> Void = { fraction in
                     progress(PipelineProgress(stageIndex: index, stageCount: stageCount, stageID: stage.id,
                                               fraction: fraction, elapsed: clock.now - start))
@@ -66,13 +67,6 @@ public actor ProcessingPipeline {
             current = next
         }
         return current
-    }
-
-    private func removePartials() throws {
-        let files = try FileManager.default.contentsOfDirectory(at: workspace.directory, includingPropertiesForKeys: nil)
-        for file in files where file.lastPathComponent.hasSuffix(".partial.caf") {
-            try FileManager.default.removeItem(at: file)
-        }
     }
 
     static func chainKey(_ upstream: String, _ stage: any AudioStage) -> String {

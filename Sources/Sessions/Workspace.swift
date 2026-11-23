@@ -44,3 +44,35 @@ public final class Workspace: Sendable {
         SessionStore.allocatedSize(of: workRoot(cacheRoot))
     }
 }
+
+/// Every MicPolish process (app or CLI) holds a shared lock on
+/// `<cacheRoot>/instances.lock` while it runs. Work shared through the cache
+/// (every session workspace, unfinished recordings) is cleaned up only inside
+/// `whileAlone`, which runs when no other process holds the lock — so one
+/// process never deletes another's intermediates or a recording in progress.
+/// The kernel drops the lock when a process exits, crashed or not.
+public final class CacheLock: @unchecked Sendable {
+    private let fd: Int32
+
+    public init(cacheRoot: URL) throws {
+        try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+        let path = cacheRoot.appendingPathComponent("instances.lock").path
+        fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        flock(fd, LOCK_SH)
+    }
+
+    deinit { close(fd) }
+
+    /// Runs `body` with the lock held exclusively if no other process holds
+    /// it; returns whether `body` ran. The shared lock is held again afterwards.
+    @discardableResult
+    public func whileAlone(_ body: () throws -> Void) rethrows -> Bool {
+        // Converting shared → exclusive may drop the shared lock even when it
+        // fails, so it is re-taken on both paths.
+        defer { flock(fd, LOCK_SH) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { return false }
+        try body()
+        return true
+    }
+}

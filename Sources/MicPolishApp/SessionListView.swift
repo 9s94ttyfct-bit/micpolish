@@ -44,6 +44,7 @@ struct SessionListView: View {
 
     @ViewBuilder private func menu(for session: SessionManifest) -> some View {
         Button("重命名…") { renaming = session }
+            .disabled(model.isBusy)
         Button("在访达中显示") { model.select(session.id); model.revealInFinder() }
         Button("处理并导出") {
             let ids = model.selection.contains(session.id) ? model.selection : [session.id]
@@ -55,6 +56,7 @@ struct SessionListView: View {
             if !model.selection.contains(session.id) { model.select(session.id) }
             model.confirmingDelete = true
         }
+        .disabled(model.isBusy)
     }
 
     /// Sessions matching the search, newest first, grouped by day.

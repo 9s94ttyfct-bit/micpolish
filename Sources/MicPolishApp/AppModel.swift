@@ -102,6 +102,9 @@ final class AppModel: ObservableObject {
     let preview = PreviewPlayer()
     let modelStore = ModelStore(root: ModelStore.defaultRoot)
     let cacheRoot = AppModel.defaultCacheRoot
+    /// Held for the app's lifetime; nil (lock file unusable) skips cleanup
+    /// rather than risk deleting another process's work.
+    private let cacheLock = try? CacheLock(cacheRoot: AppModel.defaultCacheRoot)
     /// `MICPOLISH_DATA_ROOT` runs the app on its own sessions and cache folders
     /// (for testing next to a running copy, which would otherwise share them).
     static let dataRootOverride = ProcessInfo.processInfo.environment["MICPOLISH_DATA_ROOT"]
@@ -114,6 +117,8 @@ final class AppModel: ObservableObject {
     private var lava: LavaEnhancer?
     private var inworld: InworldIsolator?
     private var processingTask: Task<Void, Never>?
+    /// Increments per `process()`, so a superseded run never touches the UI.
+    private var processingRun = 0
     private var batchTask: Task<Void, Never>?
     private var gainTask: Task<Void, Never>?
     private var gainWork: Task<(Double, StudioTone.Analysis?), Error>?
@@ -197,11 +202,18 @@ final class AppModel: ObservableObject {
                                             "The input device being recorded disconnected or changed its sample rate. Recording stopped before anything was captured.")
             }
         }
-        try? Workspace.purgeAll(cacheRoot: cacheRoot)
         let store = store
         let cacheRoot = cacheRoot
+        let cacheLock = cacheLock
+        // Only when no other MicPolish process (a second app copy, the CLI)
+        // shares the cache: their workspaces and live recordings stay put.
         let recovered = await Task.detached {
-            (try? RecordingRecovery.recover(cacheRoot: cacheRoot, store: store)) ?? []
+            var recovered: [SessionManifest] = []
+            cacheLock?.whileAlone {
+                try? Workspace.purgeAll(cacheRoot: cacheRoot)
+                recovered = (try? RecordingRecovery.recover(cacheRoot: cacheRoot, store: store)) ?? []
+            }
+            return recovered
         }.value
         for session in recovered { applyRememberedMastering(to: session.id) }
         refresh()
@@ -211,7 +223,7 @@ final class AppModel: ObservableObject {
 
     func quit() {
         preview.stop()
-        try? Workspace.purgeAll(cacheRoot: cacheRoot)
+        cacheLock?.whileAlone { try? Workspace.purgeAll(cacheRoot: cacheRoot) }
     }
 
     func refresh() {
@@ -363,9 +375,17 @@ final class AppModel: ObservableObject {
         return f.string(from: Date())
     }
 
+    /// Rename and delete wait while anything runs: an export or batch item
+    /// in flight writes into the session's folder.
+    private func refuseWhileBusy() -> Bool {
+        guard isBusy else { return false }
+        errorMessage = tr("请等处理或导出完成后再重命名或删除。", "Wait for processing or export to finish before renaming or deleting.")
+        return true
+    }
+
     func rename(_ id: UUID, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, !refuseWhileBusy() else { return }
         do {
             try store.rename(id, to: trimmed)
             refresh()
@@ -375,6 +395,7 @@ final class AppModel: ObservableObject {
     }
 
     func delete(_ ids: Set<UUID>) {
+        guard !refuseWhileBusy() else { return }
         if let selectedID, ids.contains(selectedID) { preview.stop() }
         for id in ids {
             try? Workspace(cacheRoot: cacheRoot, sessionID: id).purge()
@@ -499,17 +520,21 @@ final class AppModel: ObservableObject {
 
     func process() {
         guard let m = selected, !isBusy else { return }
+        processingRun += 1
+        let run = processingRun
         processing = .running(stage: tr("准备模型", "Preparing model"), fraction: 0, remaining: nil)
         processingTask = Task {
+            // Only the latest run, while its session is still shown, drives the UI.
+            @MainActor func owns(_ model: AppModel) -> Bool { model.processingRun == run && model.selectedID == m.id }
             do {
                 let result = try await runPipeline(m) { [weak self] stage, fraction, remaining in
-                    guard let self, self.selectedID == m.id, self.isProcessing else { return }
+                    guard let self, owns(self), self.isProcessing, self.processingTask?.isCancelled == false else { return }
                     self.processing = .running(stage: stage, fraction: fraction, remaining: remaining)
                 }
                 try Task.checkCancellation()
                 // The result stays cached in that session's workspace; only
                 // touch the UI if the user is still on that session.
-                guard selectedID == m.id else { return }
+                guard owns(self) else { return }
                 processedURL = result.url
                 processedSettings = m.processing
                 lastProcessingSeconds = result.seconds
@@ -517,17 +542,20 @@ final class AppModel: ObservableObject {
                 reloadPreview(m, processed: result.url, show: .processed)
                 processing = .done
                 refreshLoudnessGain()
-            } catch is CancellationError {
-                if selectedID == m.id { processing = .idle }
+            } catch where Task.isCancelled || error is CancellationError {
+                if owns(self) { processing = .idle }
             } catch {
-                if selectedID == m.id { processing = .failed(error.localizedDescription) }
+                if owns(self) { processing = .failed(error.localizedDescription) }
             }
         }
     }
 
+    /// Stays busy ("Cancelling…") until the cancelled run has actually
+    /// stopped, so a new run cannot overlap it in the same workspace.
     func cancelProcessing() {
+        guard isProcessing, processingTask?.isCancelled == false else { return }
         processingTask?.cancel()
-        processing = .idle
+        processing = .running(stage: tr("正在取消…", "Cancelling…"), fraction: 0, remaining: nil)
     }
 
     // MARK: Mastering
@@ -686,7 +714,7 @@ final class AppModel: ObservableObject {
         let record = ExportRecord(fileName: destination.lastPathComponent, exportedAt: Date(), modelRevisions: revisions,
                                   backend: lastBackendLabel, processingSeconds: seconds,
                                   directory: external ? folder.path : nil)
-        let updated = try store.recordExport(format: options.format, record: record, for: m)
+        let updated = try store.recordExport(format: options.format, record: record, for: m.id)
         try workspace.purge()
         return (updated, destination)
     }
@@ -748,8 +776,10 @@ final class AppModel: ObservableObject {
         batchTask = Task {
             var exported: [URL] = []
             var failures: [String] = []
-            for (index, m) in targets.enumerated() {
+            for (index, queued) in targets.enumerated() {
                 if Task.isCancelled { break }
+                // Settings may have changed since the batch started.
+                let m = (try? store.manifest(for: queued.id)) ?? queued
                 batch = BatchState(index: index + 1, total: targets.count, name: m.name, stage: tr("准备模型", "Preparing model"), fraction: 0)
                 do {
                     let result = try await runPipeline(m) { [weak self] stage, fraction, _ in

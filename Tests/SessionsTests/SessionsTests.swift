@@ -45,9 +45,9 @@ final class SessionsTests: XCTestCase {
         let dir = store.directory(for: manifest.id)
 
         try Data("m4a".utf8).write(to: store.exportURL(for: manifest, format: .m4a))
-        manifest = try store.recordExport(format: .m4a, record: ExportRecord(fileName: "口播.m4a", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: manifest)
+        manifest = try store.recordExport(format: .m4a, record: ExportRecord(fileName: "口播.m4a", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: manifest.id)
         try Data("mp3".utf8).write(to: store.exportURL(for: manifest, format: .mp3))
-        manifest = try store.recordExport(format: .mp3, record: ExportRecord(fileName: "口播.mp3", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: manifest)
+        manifest = try store.recordExport(format: .mp3, record: ExportRecord(fileName: "口播.mp3", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: manifest.id)
 
         let files = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
         XCTAssertEqual(files, ["original.flac", "session.json", "口播.mp3"])
@@ -112,7 +112,7 @@ final class SessionsTests: XCTestCase {
         let store = SessionStore(root: root)
         var m = try store.adoptRecording(try audioFile("r.flac"), name: "录音")
         try Data("x".utf8).write(to: store.exportURL(for: m, format: .m4a))
-        m = try store.recordExport(format: .m4a, record: ExportRecord(fileName: "录音.m4a", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: m)
+        m = try store.recordExport(format: .m4a, record: ExportRecord(fileName: "录音.m4a", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: m.id)
 
         let renamed = try store.rename(m.id, to: "周一访谈")
         XCTAssertEqual(renamed.name, "周一访谈")
@@ -129,10 +129,95 @@ final class SessionsTests: XCTestCase {
         var m = try store.adoptRecording(try audioFile("r.flac"), name: "a")
         try Data("x".utf8).write(to: store.exportURL(for: m, format: .m4a))
         let outside = root.deletingLastPathComponent().appendingPathComponent("exports")
-        m = try store.recordExport(format: .mp3, record: ExportRecord(fileName: "a.mp3", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1, directory: outside.path), for: m)
+        m = try store.recordExport(format: .mp3, record: ExportRecord(fileName: "a.mp3", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1, directory: outside.path), for: m.id)
         XCTAssertEqual(m.lastExport?.directory, outside.path)
         XCTAssertEqual(store.lastExportURL(for: m), outside.appendingPathComponent("a.mp3"))
         // The session's own export stays: an external export is a copy elsewhere.
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.exportURL(for: m, format: .m4a).path))
+    }
+
+    /// An imported file named like the stored original ("Original.mp3" is
+    /// stored as original.mp3) must never be overwritten, deleted or moved by
+    /// an export or a rename.
+    func testExportsAndRenameNeverTouchTheOriginal() throws {
+        let store = SessionStore(root: root)
+        var m = try store.importFile(try audioFile("Original.flac"), name: "Original")
+        let original = store.originalURL(for: m)
+        let bytes = try Data(contentsOf: original)
+        XCTAssertNotEqual(store.exportURL(for: m, format: .m4a).path.lowercased(), original.path.lowercased())
+
+        try Data("m4a".utf8).write(to: store.exportURL(for: m, format: .m4a))
+        m = try store.recordExport(format: .m4a, record: ExportRecord(fileName: store.exportURL(for: m, format: .m4a).lastPathComponent, exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: m.id)
+        try Data("mp3".utf8).write(to: store.exportURL(for: m, format: .mp3))
+        m = try store.recordExport(format: .mp3, record: ExportRecord(fileName: store.exportURL(for: m, format: .mp3).lastPathComponent, exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: m.id)
+        XCTAssertEqual(try Data(contentsOf: store.originalURL(for: m)), bytes)
+
+        m = try store.rename(m.id, to: "Renamed")
+        XCTAssertEqual(try Data(contentsOf: store.originalURL(for: m)), bytes)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: store.directory(for: m.id).path).sorted(),
+                       ["Renamed.mp3", "original.flac", "session.json"])
+    }
+
+    /// An export finishing after the user renamed or edited the session must
+    /// not write the old manifest back.
+    func testRecordExportKeepsEditsMadeDuringTheExport() throws {
+        let store = SessionStore(root: root)
+        let snapshot = try store.adoptRecording(try audioFile("r.flac"), name: "before")
+        try store.rename(snapshot.id, to: "after")
+        var edited = try store.manifest(for: snapshot.id)
+        edited.mastering.loudness.targetLUFS = -14
+        try store.save(edited)
+
+        let m = try store.recordExport(format: .m4a, record: ExportRecord(fileName: "after.m4a", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: snapshot.id)
+        XCTAssertEqual(m.name, "after")
+        XCTAssertEqual(m.mastering.loudness.targetLUFS, -14)
+        let stored = try store.manifest(for: snapshot.id)
+        XCTAssertEqual(stored.name, "after")
+        XCTAssertEqual(stored.mastering.loudness.targetLUFS, -14)
+        XCTAssertEqual(stored.lastExport?.fileName, "after.m4a")
+    }
+
+    /// Names past the file-name limit are shortened instead of failing the
+    /// folder move halfway through a rename.
+    func testOverlongNameIsShortenedToFitTheFileSystem() throws {
+        let store = SessionStore(root: root)
+        let m = try store.adoptRecording(try audioFile("r.flac"), name: "a")
+        let renamed = try store.rename(m.id, to: String(repeating: "访", count: 120)) // 360 UTF-8 bytes
+        XCTAssertLessThanOrEqual(renamed.name.utf8.count, SessionStore.maxNameBytes)
+        XCTAssertEqual(try store.list().first?.name, renamed.name)
+        XCTAssertTrue(store.directory(for: m.id).lastPathComponent.hasSuffix(renamed.name))
+    }
+
+    /// A rename that fails partway is rolled back: folder, export and
+    /// manifest keep the old name.
+    func testFailedRenameLeavesTheSessionUnchanged() throws {
+        let store = SessionStore(root: root)
+        var m = try store.adoptRecording(try audioFile("r.flac"), name: "before")
+        try Data("x".utf8).write(to: store.exportURL(for: m, format: .m4a))
+        m = try store.recordExport(format: .m4a, record: ExportRecord(fileName: "before.m4a", exportedAt: Date(), modelRevisions: [:], backend: "mlx", processingSeconds: 1), for: m.id)
+        let dir = store.directory(for: m.id)
+        // Blocks moving the export to its new name.
+        try Data("stray".utf8).write(to: dir.appendingPathComponent("after.m4a"))
+
+        XCTAssertThrowsError(try store.rename(m.id, to: "after"))
+        XCTAssertEqual(store.directory(for: m.id), dir)
+        // (Manifests round-trip dates at whole seconds, so compare fields.)
+        let stored = try store.manifest(for: m.id)
+        XCTAssertEqual(stored.name, "before")
+        XCTAssertEqual(stored.lastExport?.fileName, "before.m4a")
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("before.m4a")), Data("x".utf8))
+    }
+
+    /// Cleanup of the shared cache runs only when no other holder (another
+    /// app copy or the CLI; here a second open of the lock file) is alive.
+    func testCacheCleanupWaitsForOtherProcesses() throws {
+        let mine = try CacheLock(cacheRoot: cache)
+        var other: CacheLock? = try CacheLock(cacheRoot: cache)
+        XCTAssertFalse(mine.whileAlone { XCTFail("ran while another holder was alive") })
+        // A failed attempt must not have dropped our shared lock.
+        XCTAssertFalse(other!.whileAlone { XCTFail("ran while another holder was alive") })
+        other = nil
+        XCTAssertTrue(mine.whileAlone {})
+        _ = other
     }
 }

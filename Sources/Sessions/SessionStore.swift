@@ -40,7 +40,21 @@ public final class SessionStore: @unchecked Sendable {
     }
 
     public func exportURL(for m: SessionManifest, format: ExportFormat) -> URL {
-        directory(for: m.id).appendingPathComponent("\(Self.safeFileName(m.name)).\(format.rawValue)")
+        directory(for: m.id).appendingPathComponent("\(Self.exportStem(for: m)).\(format.rawValue)")
+    }
+
+    /// File name (without extension) of an export inside the session folder:
+    /// the session name, unless it equals the original's stem ignoring case
+    /// (default APFS is case-insensitive), so an export can never replace,
+    /// delete or move the original.
+    static func exportStem(for m: SessionManifest) -> String {
+        let stem = safeFileName(m.name)
+        let originalStem = (m.original.fileName as NSString).deletingPathExtension
+        return stem.caseInsensitiveCompare(originalStem) == .orderedSame ? "\(stem) (MicPolish)" : stem
+    }
+
+    public func manifest(for id: UUID) throws -> SessionManifest {
+        try readManifest(in: directory(for: id))
     }
 
     // MARK: Creating
@@ -107,20 +121,25 @@ public final class SessionStore: @unchecked Sendable {
         try write(m, in: directory(for: m.id))
     }
 
-    /// Records a finished export. For an export into the session folder, any
-    /// export in the other format is deleted, so the folder keeps at most one;
-    /// exports to an outside folder leave the session folder untouched.
-    public func recordExport(format: ExportFormat, record: ExportRecord, for m: SessionManifest) throws -> SessionManifest {
-        var updated = m
-        updated.export.format = format
-        updated.lastExport = record
+    /// Records a finished export on the session's current manifest (only the
+    /// export fields change, so edits made meanwhile are kept). For an export
+    /// into the session folder, any export in the other format is deleted, so
+    /// the folder keeps at most one; exports to an outside folder leave the
+    /// session folder untouched.
+    public func recordExport(format: ExportFormat, record: ExportRecord, for id: UUID) throws -> SessionManifest {
+        lock.lock()
+        defer { lock.unlock() }
+        let dir = directory(for: id)
+        var m = try readManifest(in: dir)
+        m.export.format = format
+        m.lastExport = record
         if record.directory == nil {
             for other in ExportFormat.allCases where other != format {
-                try? fileManager.removeItem(at: exportURL(for: m, format: other))
+                try? fileManager.removeItem(at: dir.appendingPathComponent("\(Self.exportStem(for: m)).\(other.rawValue)"))
             }
         }
-        try save(updated)
-        return updated
+        try write(m, in: dir)
+        return m
     }
 
     /// Where the last export was written, if any.
@@ -130,33 +149,46 @@ public final class SessionStore: @unchecked Sendable {
         return folder.appendingPathComponent(record.fileName)
     }
 
-    /// Renames a session: its manifest, its folder (keeping the date prefix)
-    /// and any export inside the session folder.
+    /// Renames a session: its folder (keeping the date prefix), any export
+    /// inside it and its manifest. On failure every completed step is undone,
+    /// so the session keeps its old folder, export names and manifest.
     @discardableResult
     public func rename(_ id: UUID, to newName: String) throws -> SessionManifest {
         lock.lock()
         defer { lock.unlock() }
         let oldDirectory = directory(for: id)
-        var m = try readManifest(in: oldDirectory)
+        let m = try readManifest(in: oldDirectory)
         let name = Self.safeFileName(newName)
         guard name != m.name else { return m }
+        let oldStem = Self.exportStem(for: m)
+        var renamed = m
+        renamed.name = name
+        let newStem = Self.exportStem(for: renamed)
+        if var record = renamed.lastExport, record.directory == nil {
+            record.fileName = "\(newStem).\((record.fileName as NSString).pathExtension)"
+            renamed.lastExport = record
+        }
 
-        for format in ExportFormat.allCases {
-            let old = oldDirectory.appendingPathComponent("\(Self.safeFileName(m.name)).\(format.rawValue)")
-            if fileManager.fileExists(atPath: old.path) {
-                try fileManager.moveItem(at: old, to: oldDirectory.appendingPathComponent("\(name).\(format.rawValue)"))
+        let directory = uniqueDirectory(name: name, date: m.createdAt)
+        try fileManager.moveItem(at: oldDirectory, to: directory)
+        var moved: [(from: URL, to: URL)] = []
+        do {
+            for format in ExportFormat.allCases {
+                let old = directory.appendingPathComponent("\(oldStem).\(format.rawValue)")
+                let new = directory.appendingPathComponent("\(newStem).\(format.rawValue)")
+                if fileManager.fileExists(atPath: old.path) {
+                    try fileManager.moveItem(at: old, to: new)
+                    moved.append((old, new))
+                }
             }
+            // Last step, atomic: until it succeeds the manifest keeps the old name.
+            try write(renamed, in: directory)
+        } catch {
+            for step in moved.reversed() { try? fileManager.moveItem(at: step.to, to: step.from) }
+            try? fileManager.moveItem(at: directory, to: oldDirectory)
+            throw error
         }
-        if var record = m.lastExport, record.directory == nil {
-            record.fileName = "\(name).\((record.fileName as NSString).pathExtension)"
-            m.lastExport = record
-        }
-        m.name = name
-        try write(m, in: oldDirectory)
-
-        let newDirectory = uniqueDirectory(name: name, date: m.createdAt)
-        try fileManager.moveItem(at: oldDirectory, to: newDirectory)
-        return m
+        return renamed
     }
 
     public func delete(_ id: UUID) throws {
@@ -178,9 +210,15 @@ public final class SessionStore: @unchecked Sendable {
         try Self.encoder.encode(m).write(to: dir.appendingPathComponent(Self.manifestName), options: .atomic)
     }
 
+    /// Longest name in UTF-8 bytes: leaves room under the 255-byte file-name
+    /// limit for the folder's date prefix, a " (n)" suffix and an extension.
+    static let maxNameBytes = 200
+
     static func safeFileName(_ name: String) -> String {
-        let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        var cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        while cleaned.utf8.count > maxNameBytes { cleaned.removeLast() }
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? "未命名" : cleaned
     }
 

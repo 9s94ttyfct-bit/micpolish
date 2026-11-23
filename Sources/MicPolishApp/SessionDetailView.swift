@@ -161,9 +161,11 @@ private struct Header: View {
             Spacer()
             Menu {
                 Button("重命名…", action: startRenaming)
+                    .disabled(model.isBusy)
                 Button("在访达中显示") { model.revealInFinder() }
                 Divider()
                 Button("删除…", role: .destructive) { model.confirmingDelete = true }
+                    .disabled(model.isBusy)
             } label: {
                 Image(systemName: "ellipsis.circle").font(.title2)
             }
@@ -176,6 +178,7 @@ private struct Header: View {
     }
 
     private func startRenaming() {
+        guard !model.isBusy else { return }
         name = manifest.name
         renaming = true
         nameFocused = true

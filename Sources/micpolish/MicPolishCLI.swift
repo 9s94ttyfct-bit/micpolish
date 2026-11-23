@@ -118,8 +118,10 @@ struct Process: AsyncParsableCommand {
         defer { try? FileManager.default.removeItem(at: sessionRoot) }
         let manifest = try SessionStore(root: sessionRoot).importFile(inputURL, name: "cli")
         let original = SessionStore(root: sessionRoot).originalURL(for: manifest)
+        // Holding the cache lock stops a launching or quitting app from purging this workspace.
+        let cacheLock = try CacheLock(cacheRoot: Workspace.defaultCacheRoot)
         let workspace = Workspace(cacheRoot: Workspace.defaultCacheRoot, sessionID: manifest.id)
-        defer { try? workspace.purge() }
+        defer { try? workspace.purge(); withExtendedLifetime(cacheLock) {} }
 
         let clock = ContinuousClock()
         let aiStart = clock.now
@@ -217,8 +219,9 @@ struct Abx: AsyncParsableCommand {
         defer { try? FileManager.default.removeItem(at: sessionRoot) }
         let store = SessionStore(root: sessionRoot)
         let manifest = try store.importFile(URL(fileURLWithPath: input), name: "abx")
+        let cacheLock = try CacheLock(cacheRoot: Workspace.defaultCacheRoot)
         let workspace = Workspace(cacheRoot: Workspace.defaultCacheRoot, sessionID: manifest.id)
-        defer { try? workspace.purge() }
+        defer { try? workspace.purge(); withExtendedLifetime(cacheLock) {} }
 
         let reuseStage = ReuseStage(enhancer: reuse, variantID: ModelCatalog.reuse.id, revision: ModelCatalog.reuse.revision)
         var variants: [(String, [any AudioStage])] = []
