@@ -84,3 +84,11 @@ MLComputePlan places every operation of both models on the Neural Engine.
 The packages are built at development time (`uv run tools/coreml/export_reuse_coreml.py --variant all`)
 and installed to `~/Library/Application Support/MicPolish/models/<model>-coreml/<revision>/`.
 "Automatic" uses the hybrid only if the in-app speed test (Settings) measured at least 15 % lower RTF.
+
+## MLX buffer cache
+
+RE-USE caps MLX's buffer cache at 2048 MB so buffers freed after each window are reused instead of
+accumulating across a long file. Set `MICPOLISH_CACHE_LIMIT_MB` to change it: a positive value is the
+cap in MB, `0` disables the cache, a negative value leaves MLX's default. The processing pipeline also
+empties the cache after every stage, so consecutive models' peaks do not add up. `MICPOLISH_DISABLE_METAL_CONV1D=1`
+replaces the custom causal depthwise Conv1d kernel with MLXNN's Conv1d (for comparison or debugging).

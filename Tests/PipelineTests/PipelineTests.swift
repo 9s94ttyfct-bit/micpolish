@@ -137,6 +137,17 @@ final class PipelineTests: XCTestCase {
         XCTAssertEqual(samples.count, 96_000, accuracy: 2)
     }
 
+    /// RE-USE is limited to 8–48 kHz: a 96 kHz import is enhanced at 48 kHz.
+    func test96kImportIsEnhancedAt48k() async throws {
+        let enhancer = try await PipelineTestModel.enhancer()
+        let reuse = ReuseStage(enhancer: enhancer, variantID: "reuse-nemotron", revision: "test")
+        let pipeline = ProcessingPipeline(stages: [reuse, ResampleStage()], workspace: workspace)
+        let result = try await pipeline.run(original: try original(seconds: 2, sampleRate: 96_000)) { _ in }
+        let (samples, rate) = try readAllMono(result.url)
+        XCTAssertEqual(rate, 48_000)
+        XCTAssertEqual(samples.count, 96_000, accuracy: 2)
+    }
+
     func test48kInputSkipsResample() async throws {
         let a = FakeGainStage(id: "one")
         let pipeline = ProcessingPipeline(stages: [a, ResampleStage()], workspace: workspace)

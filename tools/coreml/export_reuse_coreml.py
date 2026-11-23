@@ -40,6 +40,7 @@ import os
 import platform
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import coremltools as ct
@@ -321,12 +322,15 @@ def main():
         default=str(Path.home() / "Library/Application Support/MicPolish/models"),
         help="models root; packages go to <output>/<id>-coreml/<revision>/",
     )
-    parser.add_argument("--no-install", action="store_true", help="alias for --output in a temp dir")
+    parser.add_argument("--no-install", action="store_true",
+                        help="write to a new temporary directory instead of the app's models folder "
+                             "(ignored when --output is given)")
     parser.add_argument("--skip-coreml-check", action="store_true",
                         help="do not run the converted models through Core ML after export")
     args = parser.parse_args()
     if args.no_install and args.output == parser.get_default("output"):
-        raise SystemExit("--no-install needs an explicit --output")
+        args.output = tempfile.mkdtemp(prefix="micpolish-coreml-")
+        print(f"Writing packages to {args.output}")
 
     torch.manual_seed(0)
     torch.set_grad_enabled(False)

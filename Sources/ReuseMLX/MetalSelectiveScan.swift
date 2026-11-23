@@ -36,7 +36,7 @@ enum MetalSelectiveScan {
     }
     """
 
-    // Per-thread register layout (see docs/kernel-optimization.md § Fusion decisions):
+    // Per-thread register layout:
     //   x[n]     — the SSM hidden state, updated every timestep.
     //   a_reg[n] — slice `-exp(A_log[d, :])`, fused from raw A_log and
     //              hoisted out of the L loop (avoids L*N reloads under Metal
@@ -44,7 +44,7 @@ enum MetalSelectiveScan {
     //   d_reg    — Dparam[d], likewise hoisted out of the L loop.
     //
     // Delta (`delta_raw`) is consumed pre-softplus: softplus runs per L step
-    // inside the kernel (see docs/kernel-optimization.md).
+    // inside the kernel, so the softplus output is never materialized.
     //
     private static let fixed16Source = """
     uint tid = thread_position_in_grid.x;

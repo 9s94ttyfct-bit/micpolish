@@ -45,7 +45,7 @@ class Mamba: Module, UnaryLayer {
         
         // Conv1d — custom Metal kernel for the causal depthwise shape (one dispatch /
         // one graph node). Falls back to MLXNN.Conv1d on failure or when
-        // SPEECHLENS_DISABLE_METAL_CONV1D=1. See docs/kernel-optimization.md.
+        // MICPOLISH_DISABLE_METAL_CONV1D=1.
         if MetalCausalConv1d.isEnabled, let convBias = conv1d.bias {
             do {
                 innerX = try MetalCausalConv1d.run(

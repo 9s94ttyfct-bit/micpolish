@@ -27,9 +27,9 @@ enum MetalCausalConv1dError: LocalizedError {
 /// ```
 ///
 /// Why a custom kernel?
-///   One Metal dispatch / one graph node regardless of L. The MLXNN path and
-///   a rejected multi-node MLX rewrite are documented in
-///   `docs/kernel-optimization.md`.
+///   One Metal dispatch / one graph node regardless of L, where MLXNN.Conv1d
+///   (padding then trimming) builds several nodes per call. Set
+///   `MICPOLISH_DISABLE_METAL_CONV1D=1` to compare against the MLXNN path.
 ///
 /// Assumptions enforced by `run(...)`:
 ///   * kernelSize = 4
@@ -42,7 +42,7 @@ enum MetalCausalConv1dError: LocalizedError {
 enum MetalCausalConv1d {
     static var isEnabled: Bool {
         let env = ProcessInfo.processInfo.environment
-        if env["SPEECHLENS_DISABLE_METAL_CONV1D"] == "1" { return false }
+        if env["MICPOLISH_DISABLE_METAL_CONV1D"] == "1" { return false }
         return true
     }
 

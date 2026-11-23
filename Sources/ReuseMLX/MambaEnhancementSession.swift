@@ -10,8 +10,9 @@ protocol MonoWindowEnhancing: Sendable {
 
 extension MambaEnhancer: MonoWindowEnhancing {}
 
-/// Bounded mono stream state. The shared `MambaEnhancer` actor performs every
-/// model invocation, so sessions may coexist without concurrent model access.
+/// Bounded mono stream state. MLX work runs on the shared `MambaEnhancer`
+/// actor; Core ML predictions (hybrid backend) run off it but are serialized
+/// per model by `ReuseANEAccelerator`, so sessions may coexist safely.
 actor MambaEnhancementSession: ReuseEnhancementSession {
     nonisolated let recommendedInputFrameCount: Int
     nonisolated let requestedBackend: ReuseBackend
@@ -35,8 +36,9 @@ actor MambaEnhancementSession: ReuseEnhancementSession {
         settings: InferenceSettings,
         backend: ReuseBackend = .mlx
     ) throws {
-        guard sampleRate > 0 else {
-            throw InferenceError.inferenceFailed("Sample rate must be greater than zero")
+        // The model is trained for 8–48 kHz; STFT size (and memory) grows with the rate.
+        guard (8_000...48_000).contains(sampleRate) else {
+            throw InferenceError.inferenceFailed("RE-USE supports 8–48 kHz input, got \(sampleRate) Hz; resample first")
         }
         let chunkLengthDouble = settings.chunkSeconds * Double(sampleRate)
         guard chunkLengthDouble.isFinite,

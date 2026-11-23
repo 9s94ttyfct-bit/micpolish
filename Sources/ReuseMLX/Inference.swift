@@ -81,8 +81,8 @@ public actor MambaEnhancer: StreamingSpeechEnhancer {
         }
         // Cap MLX's buffer cache (default 2048 MB) so retained buffers do not climb
         // unboundedly across chunks. Override via `MICPOLISH_CACHE_LIMIT_MB`
-        // (0 = disable cache, negative = leave MLX default). See
-        // docs/performance.md.
+        // (0 = disable cache, negative = leave MLX default); see the
+        // "MLX buffer cache" section of docs/performance.md.
         if let cacheLimitBytes = Self.cacheLimitBytes() {
             MLX.Memory.cacheLimit = cacheLimitBytes
             ReuseLog.inference.debug(

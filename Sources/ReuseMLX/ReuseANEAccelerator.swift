@@ -41,9 +41,13 @@ public final class ReuseANEAccelerator: @unchecked Sendable {
     public let revision: String
     public let computeUnits: MLComputeUnits
 
-    // SAFETY: MLModel prediction is thread-safe; the models are immutable after init.
+    // Synchronous `MLModel.prediction` is not thread-safe (WWDC23 10049) and
+    // hybrid sessions call it from detached tasks, so each model's predictions
+    // are serialized by its lock. The models are immutable after init.
     private let encoder: MLModel
     private let decoders: MLModel
+    private let encoderLock = NSLock()
+    private let decodersLock = NSLock()
     private let compiledEncoderURL: URL
     private let compiledDecodersURL: URL
     private let configuration: MLModelConfiguration
@@ -142,12 +146,12 @@ public final class ReuseANEAccelerator: @unchecked Sendable {
 
     /// Core ML encoder on a `coreMLInput` of `[1, 2, 1001, 961]`. No MLX calls.
     func runEncoder(_ x: CoreMLTensor) throws -> CoreMLTensor {
-        try predict(encoder, input: "x", x, output: "h", outputShape: Self.latentShape)
+        try encoderLock.withLock { try predict(encoder, input: "x", x, output: "h", outputShape: Self.latentShape) }
     }
 
     /// Core ML decoders on a `coreMLInput` of `[1, 64, 251, 481]`. No MLX calls.
     func runDecoders(_ h: CoreMLTensor) throws -> CoreMLTensor {
-        try predict(decoders, input: "h", h, output: "y", outputShape: Self.decodedShape)
+        try decodersLock.withLock { try predict(decoders, input: "h", h, output: "y", outputShape: Self.decodedShape) }
     }
 
     /// Copies an MLX array into a float16 `MLMultiArray` the caller owns, so

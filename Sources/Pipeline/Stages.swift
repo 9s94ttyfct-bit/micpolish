@@ -31,20 +31,30 @@ public struct ReuseStage: AudioStage {
             + (effective == .aneHybrid ? "|ane" : "")
     }
 
-    public func outputSampleRate(forInput sampleRate: Int) -> Int { sampleRate }
+    /// RE-USE is trained for 8–48 kHz and its memory grows with the rate, so
+    /// other rates are converted first: above 48 kHz down to 48 kHz, below
+    /// 8 kHz up to 16 kHz.
+    public func outputSampleRate(forInput sampleRate: Int) -> Int { Self.modelSampleRate(forInput: sampleRate) }
+
+    public static func modelSampleRate(forInput sampleRate: Int) -> Int {
+        sampleRate > AudioCore.sampleRate ? AudioCore.sampleRate : (sampleRate < 8_000 ? 16_000 : sampleRate)
+    }
 
     public func run(input: StageIO, output: URL, progress: @Sendable (Double) -> Void) async throws {
         let reader = try MonoFileReader(url: input.url)
-        let writer = try MonoFileWriter(url: output, sampleRate: input.sampleRate, format: .cafFloat32)
-        let session = try await enhancer.makeSession(sampleRate: input.sampleRate, settings: settings, backend: backend)
+        let rate = Self.modelSampleRate(forInput: input.sampleRate)
+        let resampler = rate == input.sampleRate ? nil : try StreamingResampler(from: input.sampleRate, to: rate)
+        let writer = try MonoFileWriter(url: output, sampleRate: rate, format: .cafFloat32)
+        let session = try await enhancer.makeSession(sampleRate: rate, settings: settings, backend: backend)
         let total = max(1, Double(reader.frameCount))
         var consumed = 0
         while let block = try reader.read(maxFrames: session.recommendedInputFrameCount) {
             try Task.checkCancellation()
-            try writer.append(try await session.append(block))
+            try writer.append(try await session.append(try resampler?.process(block) ?? block))
             consumed += block.count
             progress(Double(consumed) / total)
         }
+        if let resampler { try writer.append(try await session.append(try resampler.flush())) }
         try writer.append(try await session.finish())
         try writer.close()
         onBackendUsage?(await session.backendUsage)
