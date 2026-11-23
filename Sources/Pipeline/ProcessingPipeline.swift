@@ -58,7 +58,7 @@ public actor ProcessingPipeline {
                     defer { MLX.Memory.clearCache() }
                     try await stage.run(input: current, output: partial, progress: report)
                     try Task.checkCancellation()
-                    try FileManager.default.moveItem(at: partial, to: final)
+                    try Self.commit(partial, to: final)
                 } catch {
                     try? FileManager.default.removeItem(at: partial)
                     throw error
@@ -67,6 +67,18 @@ public actor ProcessingPipeline {
             current = next
         }
         return current
+    }
+
+    /// Moves a finished partial into place (an atomic rename). Another run of
+    /// the same chain — e.g. one that passed its cancellation check just
+    /// before being cancelled — may have put the final there first; same
+    /// input, stage and settings give the same output, so that file is kept.
+    static func commit(_ partial: URL, to final: URL) throws {
+        do {
+            try FileManager.default.moveItem(at: partial, to: final)
+        } catch where FileManager.default.fileExists(atPath: final.path) {
+            try? FileManager.default.removeItem(at: partial)
+        }
     }
 
     static func chainKey(_ upstream: String, _ stage: any AudioStage) -> String {

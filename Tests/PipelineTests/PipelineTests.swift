@@ -112,6 +112,22 @@ final class PipelineTests: XCTestCase {
         XCTAssertEqual(try readAllMono(result.url).samples.count, 48_000)
     }
 
+    /// A cancelled run that was already past its cancellation check and a
+    /// restarted run of the same chain both finish the stage: whichever moves
+    /// its output into place second must keep the first one's file, not fail.
+    func testOverlappingRunsOfTheSameChainBothSucceed() async throws {
+        let source = try original(seconds: 1)
+        let gate = StageGate(waitingFor: 2)
+        let first = ProcessingPipeline(stages: [GatedStage(id: "one", gate: gate)], workspace: workspace)
+        let second = ProcessingPipeline(stages: [GatedStage(id: "one", gate: gate)], workspace: workspace)
+        async let a = first.run(original: source) { _ in }
+        async let b = second.run(original: source) { _ in }
+        let (ra, rb) = try await (a, b)
+        XCTAssertEqual(ra.url, rb.url)
+        XCTAssertEqual(try readAllMono(ra.url).samples.count, 48_000)
+        XCTAssertFalse(workFiles().contains { $0.contains(".partial") })
+    }
+
     func testHalfSecondInputProcesses() async throws {
         let enhancer = try await PipelineTestModel.enhancer()
         let stage = ReuseStage(enhancer: enhancer, variantID: "reuse-nemotron", revision: "test")
@@ -201,6 +217,35 @@ final class LockedList: @unchecked Sendable {
     private var items: [String] = []
     func append(_ s: String) { lock.lock(); if items.last != s { items.append(s) }; lock.unlock() }
     var unique: [String] { lock.lock(); defer { lock.unlock() }; return items }
+}
+
+/// Lets stage runs finish only once `count` of them have written their output.
+final class StageGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var arrived = 0
+    private let count: Int
+    init(waitingFor count: Int) { self.count = count }
+    func arrive() { lock.lock(); arrived += 1; lock.unlock() }
+    var isOpen: Bool { lock.lock(); defer { lock.unlock() }; return arrived >= count }
+}
+
+/// Copies its input, then waits at the gate before returning.
+final class GatedStage: AudioStage, @unchecked Sendable {
+    let id: String
+    let settingsKey = "a"
+    let gate: StageGate
+    init(id: String, gate: StageGate) {
+        self.id = id
+        self.gate = gate
+    }
+    func outputSampleRate(forInput sampleRate: Int) -> Int { sampleRate }
+    func run(input: StageIO, output: URL, progress: @Sendable (Double) -> Void) async throws {
+        let writer = try MonoFileWriter(url: output, sampleRate: input.sampleRate, format: .cafFloat32)
+        try writer.append(try readAllMono(input.url).samples)
+        try writer.close()
+        gate.arrive()
+        while !gate.isOpen { try await Task.sleep(nanoseconds: 5_000_000) }
+    }
 }
 
 enum PipelineTestModel {
