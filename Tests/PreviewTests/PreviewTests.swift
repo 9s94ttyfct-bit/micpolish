@@ -191,6 +191,22 @@ final class PreviewTests: XCTestCase {
         XCTAssertEqual(player.duration, 300, accuracy: 0.01)
     }
 
+    /// A load still preparing when the player is cleared (e.g. its session
+    /// was deleted) must not bring the old audio back afterwards.
+    func testClearSupersedesALoadInProgress() async throws {
+        let url = try write("a.caf", noise(seconds: 5, amplitude: 0.3, seed: 5))
+        let player = PreviewPlayer()
+        let started = player.loadGeneration
+        let load = Task { try await player.load(original: url, processed: nil, scratchDirectory: scratch) }
+        // The load bumps the generation before preparing off the main actor.
+        while player.loadGeneration == started { await Task.yield() }
+        player.clear()
+        try await load.value
+        XCTAssertEqual(player.duration, 0)
+        XCTAssertTrue(player.envelopes.isEmpty)
+        XCTAssertEqual(player.state.withLock { player.state.length }, 0)
+    }
+
     private func residentBytes() -> Int {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)

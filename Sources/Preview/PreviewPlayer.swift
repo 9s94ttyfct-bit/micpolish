@@ -159,7 +159,7 @@ public final class PreviewPlayer: ObservableObject {
     private var timer: Timer?
     /// Integrated loudness per source; absent when unmeasurable (silence).
     private var loudness: [PreviewSource: Double] = [:]
-    private var loadGeneration = 0
+    private(set) var loadGeneration = 0
     private static let format = AVAudioFormat(standardFormatWithSampleRate: Double(AudioCore.sampleRate), channels: 1)!
 
     public init(mastering: MasteringSettings = .default) {
@@ -182,8 +182,10 @@ public final class PreviewPlayer: ObservableObject {
 
     /// Empties the player (no signal, waveform or duration), e.g. while
     /// another session's audio is being prepared, so nothing on screen —
-    /// trim handles included — still refers to the previous audio.
+    /// trim handles included — still refers to the previous audio. A load
+    /// still preparing in the background is superseded and will not refill it.
     public func clear() {
+        loadGeneration += 1
         pause()
         state.withLock {
             state.original = nil
