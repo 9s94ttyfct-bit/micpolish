@@ -151,6 +151,34 @@ final class ModelStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: first), try Data(contentsOf: source))
     }
 
+    /// Cancelling one of two callers sharing an install must not fail the
+    /// other; cancelling the only caller stops the download.
+    func testCancellingOneWaiterKeepsTheSharedInstallForTheOther() async throws {
+        let source = try fixture(bytes: 4096)
+        let digest = SHA256.hash(data: try Data(contentsOf: source)).map { String(format: "%02x", $0) }.joined()
+        let descriptor = ModelDescriptor(id: "test-asis", repo: "owner/repo", revision: "abc", file: "model.safetensors",
+                                         sha256: digest, byteCount: 4096, licenseResource: "Apache-2.0-LavaSR.txt",
+                                         format: .asIs)
+        let store = ModelStore(root: root, downloader: SlowDownloader(source: source))
+        let first = Task { try await store.install(descriptor) { _ in } }
+        let second = Task { try await store.install(descriptor) { _ in } }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        first.cancel()
+        let url = try await second.value
+        XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: source))
+
+        let other = ModelStore(root: root.appendingPathComponent("other"), downloader: SlowDownloader(source: source))
+        let lone = Task { try await other.install(descriptor) { _ in } }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        lone.cancel()
+        do {
+            _ = try await lone.value
+            XCTFail("a cancelled lone install should not complete")
+        } catch {}
+        let installed = await other.installedWeightsURL(descriptor)
+        XCTAssertNil(installed)
+    }
+
     func testStaleStagingIsRemovedWhenAnInstallStarts() async throws {
         let source = try fixture(bytes: 4096)
         let digest = SHA256.hash(data: try Data(contentsOf: source)).map { String(format: "%02x", $0) }.joined()

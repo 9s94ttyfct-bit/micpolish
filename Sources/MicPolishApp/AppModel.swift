@@ -847,10 +847,11 @@ final class AppModel: ObservableObject {
             var failures: [String] = []
             for (index, queued) in targets.enumerated() {
                 if Task.isCancelled { break }
-                // Settings may have changed since the batch started.
-                let m = (try? store.manifest(for: queued.id)) ?? queued
-                batch = BatchState(index: index + 1, total: targets.count, name: m.name, stage: tr("准备模型", "Preparing model"), fraction: 0)
+                batch = BatchState(index: index + 1, total: targets.count, name: queued.name, stage: tr("准备模型", "Preparing model"), fraction: 0)
                 do {
+                    // Settings may have changed since the batch started; a session
+                    // that can no longer be read fails rather than using the snapshot.
+                    let m = try store.manifest(for: queued.id)
                     let result = try await runPipeline(m) { [weak self] stage, fraction, _ in
                         self?.batch?.stage = stage
                         self?.batch?.fraction = fraction * 0.85
@@ -863,7 +864,7 @@ final class AppModel: ObservableObject {
                 } catch is CancellationError {
                     break
                 } catch {
-                    failures.append(tr("\(m.name)：\(error.localizedDescription)", "\(m.name): \(error.localizedDescription)"))
+                    failures.append(tr("\(queued.name)：\(error.localizedDescription)", "\(queued.name): \(error.localizedDescription)"))
                 }
             }
             batch = nil

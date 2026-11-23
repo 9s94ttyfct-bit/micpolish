@@ -53,13 +53,20 @@ public final class Workspace: Sendable {
 /// The kernel drops the lock when a process exits, crashed or not.
 public final class CacheLock: @unchecked Sendable {
     private let fd: Int32
+    /// `whileAlone` converts this process's lock on one descriptor, so two
+    /// calls (launch cleanup off the main thread, quit on it) must not overlap.
+    private let serial = NSLock()
 
     public init(cacheRoot: URL) throws {
         try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
         let path = cacheRoot.appendingPathComponent("instances.lock").path
         fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        flock(fd, LOCK_SH)
+        guard Self.lock(fd, LOCK_SH) else {
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            close(fd)
+            throw POSIXError(code)
+        }
     }
 
     deinit { close(fd) }
@@ -68,11 +75,21 @@ public final class CacheLock: @unchecked Sendable {
     /// it; returns whether `body` ran. The shared lock is held again afterwards.
     @discardableResult
     public func whileAlone(_ body: () throws -> Void) rethrows -> Bool {
+        serial.lock()
+        defer { serial.unlock() }
         // Converting shared → exclusive may drop the shared lock even when it
         // fails, so it is re-taken on both paths.
-        defer { flock(fd, LOCK_SH) }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { return false }
+        defer { _ = Self.lock(fd, LOCK_SH) }
+        guard Self.lock(fd, LOCK_EX | LOCK_NB) else { return false }
         try body()
+        return true
+    }
+
+    /// `flock`, retried when a signal interrupts it.
+    private static func lock(_ fd: Int32, _ operation: Int32) -> Bool {
+        while flock(fd, operation) != 0 {
+            guard errno == EINTR else { return false }
+        }
         return true
     }
 }

@@ -33,8 +33,9 @@ public actor ModelStore {
     private let root: URL
     private let downloader: any Downloader
     private let fileManager = FileManager.default
-    /// Installs in progress, by model id, so concurrent callers share one download.
-    private var inFlight: [String: Task<URL, Error>] = [:]
+    /// Installs in progress, by model id and revision, so concurrent callers
+    /// share one download; `waiters` are the callers still interested in it.
+    private var inFlight: [String: (task: Task<URL, Error>, waiters: Set<UUID>)] = [:]
     /// Staging folders older than this are leftovers of interrupted installs.
     static let staleStagingAge: TimeInterval = 6 * 3600
 
@@ -66,19 +67,36 @@ public actor ModelStore {
 
     /// Downloads, verifies and installs `d` unless it is installed already.
     /// Concurrent calls for the same model share one install; only the first
-    /// caller receives progress.
+    /// caller receives progress. The shared install is cancelled only when
+    /// every caller waiting for it has been cancelled.
     public func install(
         _ d: ModelDescriptor,
         progress: @Sendable @escaping (Double) -> Void
     ) async throws -> URL {
         if let existing = installedWeightsURL(d) { return existing }
         let key = "\(d.id)@\(d.revision)"
-        if let running = inFlight[key] { return try await running.value }
-        let task = Task { try await self.performInstall(d, progress: progress) }
-        inFlight[key] = task
-        defer { inFlight[key] = nil }
-        // Cancelling the caller that started the install cancels the download.
-        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        let task: Task<URL, Error>
+        if let shared = inFlight[key] {
+            task = shared.task
+        } else {
+            task = Task { try await self.performInstall(d, progress: progress) }
+            inFlight[key] = (task, [])
+        }
+        let waiter = UUID()
+        inFlight[key]?.waiters.insert(waiter)
+        defer { leave(key, waiter, of: task, cancelIfLast: false) }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: {
+            Task { await self.leave(key, waiter, of: task, cancelIfLast: true) }
+        }
+    }
+
+    /// One caller stops waiting. When none are left the entry goes; if the
+    /// last one left because it was cancelled, so does the install.
+    private func leave(_ key: String, _ waiter: UUID, of task: Task<URL, Error>, cancelIfLast: Bool) {
+        guard inFlight[key]?.task == task, inFlight[key]?.waiters.remove(waiter) != nil,
+              inFlight[key]?.waiters.isEmpty == true else { return }
+        inFlight[key] = nil
+        if cancelIfLast { task.cancel() }
     }
 
     private func performInstall(
