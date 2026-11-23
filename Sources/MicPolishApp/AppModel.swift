@@ -294,9 +294,12 @@ final class AppModel: ObservableObject {
     }
 
     /// Starts recording from `recordingInput`, or stops and saves the running one.
+    /// The choice is made now, from what the user saw: if the recording ended on
+    /// its own before the task runs, a "stop" must not start a new recording.
     func toggleRecording() {
+        let stop = recorder.isRecording
         Task {
-            if recorder.isRecording { await stopRecording() } else { await startRecording(input: recordingInput) }
+            if stop { await stopRecording() } else { await startRecording(input: recordingInput) }
         }
     }
 
@@ -323,6 +326,9 @@ final class AppModel: ObservableObject {
             refresh()
             select(m.id)
             if askNameAfterRecording { pendingRename = selected }
+        } catch RecorderError.notRecording {
+            // The recording already ended on its own (device lost, write error);
+            // that interruption is reported separately.
         } catch RecorderError.nothingCaptured {
             errorMessage = tr("没有录到声音，没有保存。", "Nothing was captured, so nothing was saved.")
         } catch {
