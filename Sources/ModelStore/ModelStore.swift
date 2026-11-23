@@ -2,10 +2,26 @@ import CryptoKit
 import Foundation
 import ReuseMLX
 
-public enum ModelStoreError: Error, Equatable {
+public enum ModelStoreError: Error, Equatable, LocalizedError {
     case checksumMismatch(expected: String, actual: String)
     case sizeMismatch(expected: Int, actual: Int)
     case missingLicense(String)
+    /// The server answered with a non-2xx status.
+    case httpStatus(Int, URL)
+
+    public var errorDescription: String? {
+        switch self {
+        case .checksumMismatch(let expected, let actual):
+            "The downloaded model is corrupt: SHA-256 \(actual.prefix(12))… instead of \(expected.prefix(12))…. Try again."
+        case .sizeMismatch(let expected, let actual):
+            "The model download is incomplete or wrong: \(actual) bytes instead of \(expected). Check the network (a proxy or login page can cause this) and try again."
+        case .missingLicense(let name):
+            "The app is missing the license file \(name); reinstall MicPolish."
+        case .httpStatus(let status, let url):
+            "Downloading \(url.lastPathComponent) failed: the server answered HTTP \(status)"
+                + (status == 404 ? " (not found)." : status == 401 || status == 403 ? " (access denied)." : status == 429 ? " (too many requests; try later)." : ".")
+        }
+    }
 }
 
 /// Installs pinned checkpoints under `<root>/<id>/<revision>/` as
@@ -17,6 +33,10 @@ public actor ModelStore {
     private let root: URL
     private let downloader: any Downloader
     private let fileManager = FileManager.default
+    /// Installs in progress, by model id, so concurrent callers share one download.
+    private var inFlight: [String: Task<URL, Error>] = [:]
+    /// Staging folders older than this are leftovers of interrupted installs.
+    static let staleStagingAge: TimeInterval = 6 * 3600
 
     public init(root: URL, downloader: any Downloader = URLSessionDownloader()) {
         self.root = root
@@ -33,18 +53,40 @@ public actor ModelStore {
             .appendingPathComponent(d.revision, isDirectory: true)
     }
 
+    /// The license text shipped with the app for `d` (also copied next to
+    /// installed weights as `LICENSE.txt`).
+    public nonisolated static func licenseURL(for d: ModelDescriptor) -> URL? {
+        Bundle.module.url(forResource: d.licenseResource, withExtension: nil, subdirectory: "licenses")
+    }
+
     public func installedWeightsURL(_ d: ModelDescriptor) -> URL? {
         let url = installDirectory(d).appendingPathComponent(d.installedFileName)
         return fileManager.fileExists(atPath: url.path) ? url : nil
     }
 
+    /// Downloads, verifies and installs `d` unless it is installed already.
+    /// Concurrent calls for the same model share one install; only the first
+    /// caller receives progress.
     public func install(
         _ d: ModelDescriptor,
         progress: @Sendable @escaping (Double) -> Void
     ) async throws -> URL {
         if let existing = installedWeightsURL(d) { return existing }
+        let key = "\(d.id)@\(d.revision)"
+        if let running = inFlight[key] { return try await running.value }
+        let task = Task { try await self.performInstall(d, progress: progress) }
+        inFlight[key] = task
+        defer { inFlight[key] = nil }
+        // Cancelling the caller that started the install cancels the download.
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
 
+    private func performInstall(
+        _ d: ModelDescriptor,
+        progress: @Sendable @escaping (Double) -> Void
+    ) async throws -> URL {
         let stagingRoot = root.appendingPathComponent(".staging", isDirectory: true)
+        removeStaleStaging(in: stagingRoot)
         let staging = stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: staging) }
@@ -69,7 +111,7 @@ public actor ModelStore {
         case .asIs:
             try fileManager.moveItem(at: source, to: built.appendingPathComponent(d.installedFileName))
         }
-        guard let license = Bundle.module.url(forResource: d.licenseResource, withExtension: nil, subdirectory: "licenses") else {
+        guard let license = Self.licenseURL(for: d) else {
             throw ModelStoreError.missingLicense(d.licenseResource)
         }
         try fileManager.copyItem(at: license, to: built.appendingPathComponent("LICENSE.txt"))
@@ -81,6 +123,17 @@ public actor ModelStore {
         }
         try fileManager.moveItem(at: built, to: destination)
         return destination.appendingPathComponent(d.installedFileName)
+    }
+
+    /// Deletes staging folders left by installs that were interrupted (app quit,
+    /// Ctrl-C). Recent ones may belong to an install running in another process.
+    private func removeStaleStaging(in stagingRoot: URL) {
+        let entries = (try? fileManager.contentsOfDirectory(
+            at: stagingRoot, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for entry in entries {
+            let modified = (try? entry.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            if Date().timeIntervalSince(modified) > Self.staleStagingAge { try? fileManager.removeItem(at: entry) }
+        }
     }
 
     public func remove(_ d: ModelDescriptor) throws {

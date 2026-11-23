@@ -11,7 +11,7 @@ public struct URLSessionDownloader: Downloader {
     public func download(_ url: URL, to destination: URL, progress: @Sendable @escaping (Double) -> Void) async throws {
         let (bytes, response) = try await URLSession.shared.bytes(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw URLError(.badServerResponse)
+            throw ModelStoreError.httpStatus(http.statusCode, url)
         }
         let expected = response.expectedContentLength
         FileManager.default.createFile(atPath: destination.path, contents: nil)

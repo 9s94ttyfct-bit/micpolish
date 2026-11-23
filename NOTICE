@@ -30,7 +30,8 @@ The weights are not distributed with MicPolish: the app downloads them at a
 pinned revision and converts them locally. Tests/Fixtures/reuse contains audio
 and reference outputs derived from NVIDIA materials under OpenMDW-1.1, and
 tools/parity/reuse_reference.py loads NVIDIA's model code at run time. The
-license text ships in the app (MicPolish_ModelStore.bundle/licenses).
+license text ships in the app (MicPolish_ModelStore.bundle/licenses) and is
+installed next to the weights as LICENSE.txt (Settings > AI models > License).
 
 ----------------------------------------------------------------------
 MLX (mlx, mlx-c, mlx-swift) — Copyright © 2023 Apple Inc., MIT License.
@@ -55,7 +56,8 @@ Sources/InworldMLX is a Swift/MLX port of its offline inference code (band-split
 dual-path network and offline chunk stitching). The offline checkpoint
 (inworld/voice-isolator denoiser.safetensors, pinned revision) is downloaded at
 run time. Its upstream NOTICE, including training-data attributions, ships
-with the app in licenses/Apache-2.0-Inworld.txt.
+in the app (MicPolish_ModelStore.bundle/licenses/Apache-2.0-Inworld.txt) and is
+installed next to the weights as LICENSE.txt (Settings > AI models > License).
 
 ----------------------------------------------------------------------
 CSTR VCTK Corpus 0.92 (https://doi.org/10.7488/ds/2645), Centre for Speech

@@ -34,6 +34,11 @@ struct SettingsView: View {
                             Text(verbatim: "\(d.repo) @ \(d.revision.prefix(8)) · \(d.licenseResource.hasPrefix("OpenMDW") ? "OpenMDW-1.1" : "Apache-2.0")").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
+                        if let license = ModelStore.licenseURL(for: d) {
+                            Button("许可") { NSWorkspace.shared.open(license) }
+                                .buttonStyle(.link)
+                                .help("查看这个模型的许可和数据来源说明")
+                        }
                         if installed[d.id] == true {
                             Button("删除") {
                                 Task { try? await model.modelStore.remove(d); await reload(); await model.checkModel() }

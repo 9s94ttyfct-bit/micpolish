@@ -87,7 +87,7 @@ struct InworldConfig: Equatable, Sendable {
     init(json: String) throws {
         guard let data = json.data(using: .utf8),
               let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw InworldIsolatorError.missingTensor("__metadata__.config")
+            throw InworldIsolatorError.unsupportedConfig("config metadata is not a JSON object")
         }
         func unsupported(_ name: String) -> InworldIsolatorError {
             .unsupportedConfig("\(name)=\(raw[name].map { "\($0)" } ?? "nil")")

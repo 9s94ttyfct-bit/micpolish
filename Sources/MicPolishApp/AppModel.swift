@@ -233,16 +233,23 @@ final class AppModel: ObservableObject {
         modelState = await modelStore.installedWeightsURL(descriptor) == nil ? .notInstalled : .ready
     }
 
+    /// Downloads a model from Settings. Only the RE-USE model drives the main
+    /// window's `modelState`; other models just install.
     func downloadModel(_ descriptor: ModelDescriptor = ModelCatalog.reuse) async {
-        modelState = .downloading(0)
+        let tracksMainModel = descriptor.id.hasPrefix("reuse")
+        if tracksMainModel { modelState = .downloading(0) }
         do {
             _ = try await modelStore.install(descriptor) { fraction in
+                guard tracksMainModel else { return }
                 Task { @MainActor in self.modelState = .downloading(fraction) }
             }
-            modelState = .ready
         } catch {
-            modelState = .failed(error.localizedDescription)
+            if tracksMainModel { modelState = .failed(error.localizedDescription) } else {
+                errorMessage = tr("下载模型失败：\(error.localizedDescription)", "Model download failed: \(error.localizedDescription)")
+            }
+            return
         }
+        await checkModel()
     }
 
     private func enhancer(for variant: String) async throws -> (MambaEnhancer, ModelDescriptor, ReuseBackend) {

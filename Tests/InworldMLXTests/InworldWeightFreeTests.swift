@@ -198,11 +198,12 @@ final class InworldWeightFreeTests: XCTestCase {
         }
     }
 
-    func testCorruptCheckpointThrows() throws {
+    /// An unreadable file reports the loader's error, not a missing config.
+    func testCorruptCheckpointThrowsTheLoadError() throws {
         let url = temporaryURL()
         try Data("not a safetensors file".utf8).write(to: url)
         XCTAssertThrowsError(try InworldIsolator(weightsURL: url)) { error in
-            XCTAssertEqual(error as? InworldIsolatorError, .missingTensor("__metadata__.config"))
+            XCTAssertNil(error as? InworldIsolatorError)
         }
     }
 

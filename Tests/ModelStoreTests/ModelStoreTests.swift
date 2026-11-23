@@ -15,6 +15,21 @@ final class FakeDownloader: Downloader, @unchecked Sendable {
     }
 }
 
+/// Like `FakeDownloader`, but yields for a while so a second install can start meanwhile.
+final class SlowDownloader: Downloader, @unchecked Sendable {
+    let source: URL
+    private let lock = NSLock()
+    private var count = 0
+    var calls: Int { lock.withLock { count } }
+    init(source: URL) { self.source = source }
+
+    func download(_ url: URL, to destination: URL, progress: @Sendable @escaping (Double) -> Void) async throws {
+        lock.withLock { count += 1 }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+}
+
 final class ModelStoreTests: XCTestCase {
     private var root: URL!
 
@@ -118,6 +133,44 @@ final class ModelStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: source))
         let installed = await store.installedWeightsURL(descriptor)
         XCTAssertEqual(installed, url)
+    }
+
+    func testConcurrentInstallsShareOneDownload() async throws {
+        let source = try fixture(bytes: 4096)
+        let digest = SHA256.hash(data: try Data(contentsOf: source)).map { String(format: "%02x", $0) }.joined()
+        let descriptor = ModelDescriptor(id: "test-asis", repo: "owner/repo", revision: "abc", file: "model.safetensors",
+                                         sha256: digest, byteCount: 4096, licenseResource: "Apache-2.0-LavaSR.txt",
+                                         format: .asIs)
+        let downloader = SlowDownloader(source: source)
+        let store = ModelStore(root: root, downloader: downloader)
+        async let a = store.install(descriptor) { _ in }
+        async let b = store.install(descriptor) { _ in }
+        let (first, second) = try await (a, b)
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(downloader.calls, 1)
+        XCTAssertEqual(try Data(contentsOf: first), try Data(contentsOf: source))
+    }
+
+    func testStaleStagingIsRemovedWhenAnInstallStarts() async throws {
+        let source = try fixture(bytes: 4096)
+        let digest = SHA256.hash(data: try Data(contentsOf: source)).map { String(format: "%02x", $0) }.joined()
+        let descriptor = ModelDescriptor(id: "test-asis", repo: "owner/repo", revision: "abc", file: "model.safetensors",
+                                         sha256: digest, byteCount: 4096, licenseResource: "Apache-2.0-LavaSR.txt",
+                                         format: .asIs)
+        let stale = root.appendingPathComponent(".staging/left-over", isDirectory: true)
+        let fresh = root.appendingPathComponent(".staging/other-process", isDirectory: true)
+        for dir in [stale, fresh] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -2 * ModelStore.staleStagingAge)],
+                                              ofItemAtPath: stale.path)
+        _ = try await ModelStore(root: root, downloader: FakeDownloader(source: source)).install(descriptor) { _ in }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path))
+    }
+
+    func testHTTPErrorsNameTheStatus() {
+        let error = ModelStoreError.httpStatus(404, URL(string: "https://example.com/m/model.safetensors")!)
+        XCTAssertEqual(error.localizedDescription,
+                       "Downloading model.safetensors failed: the server answered HTTP 404 (not found).")
     }
 
     func testCatalogPinsLavaSRMirror() {

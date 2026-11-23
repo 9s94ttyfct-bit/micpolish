@@ -1871,6 +1871,26 @@
           }
         }
       }
+    },
+    "许可": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "License"
+          }
+        }
+      }
+    },
+    "查看这个模型的许可和数据来源说明": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View this model's license and data attributions"
+          }
+        }
+      }
     }
   }
 }

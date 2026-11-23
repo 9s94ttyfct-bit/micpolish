@@ -140,7 +140,8 @@ def render(vi, x):
 
 
 def check_goldens(vi, directory):
-    """Upstream's own golden offline fixtures at their recorded tolerance."""
+    """Upstream's own golden offline fixtures at their recorded tolerance; exits 1 if any fails."""
+    failed = []
     for meta_path in sorted(pathlib.Path(directory).glob("offline_*/meta.json")):
         meta = json.loads(meta_path.read_text())
         x = read_mono(meta_path.parent / "input.wav")
@@ -151,6 +152,10 @@ def check_goldens(vi, directory):
         ok = err <= meta["tolerance"]
         print(f"{meta_path.parent.name}: max abs {err:.3g} (tolerance {meta['tolerance']:g}), "
               f"relative RMSE {rel:.3g} {'OK' if ok else 'FAIL'}")
+        if not ok:
+            failed.append(meta_path.parent.name)
+    if failed:
+        raise SystemExit(f"golden fixtures outside tolerance: {', '.join(failed)}")
 
 
 def main():

@@ -43,12 +43,8 @@ public final class InworldIsolator: @unchecked Sendable {
             throw InworldIsolatorError.weightsNotFound(weightsURL)
         }
         network = try Device.withDefaultDevice(.gpu) { () throws -> InworldNetwork in
-            let tensors: [String: MLXArray], metadata: [String: String]
-            do {
-                (tensors, metadata) = try loadArraysAndMetadata(url: weightsURL)
-            } catch {
-                throw InworldIsolatorError.missingTensor("__metadata__.config")
-            }
+            // A truncated or non-safetensors file reports the loader's own error.
+            let (tensors, metadata) = try loadArraysAndMetadata(url: weightsURL)
             guard let json = metadata["config"] else {
                 throw InworldIsolatorError.missingTensor("__metadata__.config")
             }
