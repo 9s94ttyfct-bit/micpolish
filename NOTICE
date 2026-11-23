@@ -37,9 +37,11 @@ installed next to the weights as LICENSE.txt (Settings > AI models > License).
 MLX (mlx, mlx-c, mlx-swift) — Copyright © 2023 Apple Inc., MIT License.
 fmt — MIT License. nlohmann/json — MIT License.
 metal-cpp — Copyright © 2023 Apple Inc., Apache License 2.0.
-swift-numerics, swift-argument-parser — Apple Inc., Apache License 2.0.
-These are statically linked; their license texts ship in the app under
-Contents/Resources/licenses.
+swift-numerics — Apple Inc., Apache License 2.0.
+These are statically linked into the app; their license texts ship in it
+under Contents/Resources/licenses.
+swift-argument-parser — Apple Inc., Apache License 2.0 — is linked only into
+the `micpolish` command-line tool, not the app.
 
 ----------------------------------------------------------------------
 LavaSR v2 — bandwidth extension model (https://github.com/ysharma3501/LavaSR)

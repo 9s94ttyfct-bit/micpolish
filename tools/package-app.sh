@@ -35,6 +35,8 @@ done
 # Localizations: zh-Hans is the development language; English comes from the catalog.
 xcrun xcstringstool compile Sources/MicPolishApp/Localizable.xcstrings --output-directory "$app/Contents/Resources"
 mkdir -p "$app/Contents/Resources/zh-Hans.lproj"
+# Info.plist strings (the microphone prompt) for languages other than zh-Hans.
+cp -R Config/*.lproj "$app/Contents/Resources/"
 
 # MLX resolves mlx.metallib next to the binary that links it.
 tools/build_mlx_metallib.sh --output "$app/Contents/MacOS/mlx.metallib"

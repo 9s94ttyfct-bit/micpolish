@@ -91,8 +91,14 @@ struct Process: AsyncParsableCommand {
     @Option(help: "Studio tone amount, 0...1 (off when omitted).") var studioTone: Double?
 
     func validate() throws {
-        guard highBand == "off" || highBand == "auto" || Double(highBand) != nil else {
-            throw ValidationError("--high-band must be off, auto or a frequency in Hz")
+        if highBand != "off" && highBand != "auto" {
+            // Same lower bound as the automatic cutoff; LavaSR works up to Nyquist (24 kHz).
+            guard let hz = Double(highBand), hz.isFinite, (4_000...24_000).contains(hz) else {
+                throw ValidationError("--high-band must be off, auto or a frequency from 4000 to 24000 Hz")
+            }
+        }
+        if let studioTone, !(0...1).contains(studioTone) {
+            throw ValidationError("--studio-tone must be from 0 to 1 (e.g. 0.7 for 70%)")
         }
         guard ["m4a", "mp3"].contains(URL(fileURLWithPath: output).pathExtension.lowercased()) else {
             throw ValidationError("--output must end in .m4a or .mp3")

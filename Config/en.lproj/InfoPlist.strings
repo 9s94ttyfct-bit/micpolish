@@ -1,0 +1,2 @@
+/* Permission prompt shown the first time MicPolish records. */
+"NSMicrophoneUsageDescription" = "MicPolish uses the microphone to record your voice. Recordings stay on this Mac.";

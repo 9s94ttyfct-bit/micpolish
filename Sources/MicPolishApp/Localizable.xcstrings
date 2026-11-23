@@ -1502,12 +1502,12 @@
         }
       }
     },
-    "关闭后直接用“月日 时.分 录音”作为名称，之后仍可在录音页点铅笔改名。快捷键：⌘R 开始 / 停止并保存，⌘⌫ 丢弃。": {
+    "关闭后直接用“月日 时.分 录音”作为名称，之后可双击标题或在“更多操作”菜单里改名。快捷键：⌘R 开始 / 停止并保存，⌘⌫ 丢弃。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When off, recordings keep their default date-and-time name; rename later with the pencil. Shortcuts: ⌘R start / stop and save, ⌘⌫ discard."
+            "value": "When off, recordings keep their default date-and-time name; rename later by double-clicking the title or from the More menu. Shortcuts: ⌘R start / stop and save, ⌘⌫ discard."
           }
         }
       }
@@ -1708,6 +1708,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Exporting needs AI restoration first. Process & Export in the toolbar does both in one step."
+          }
+        }
+      }
+    },
+    "AI 设置改过了，请先重新处理再导出。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The AI settings changed. Process again before exporting."
           }
         }
       }

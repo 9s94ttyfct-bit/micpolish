@@ -110,7 +110,7 @@ struct ContentView: View {
             if case .success(let urls) = result { model.importFiles(urls) }
         }
         .confirmationDialog(deleteTitle, isPresented: $model.confirmingDelete) {
-            Button("删除", role: .destructive) { model.delete(model.selection) }
+            Button("删除", role: .destructive) { model.delete(model.deleteTargets) }
         } message: {
             Text("原始录音和导出到会话文件夹的成品都会被删除，无法恢复。")
         }
@@ -131,7 +131,7 @@ struct ContentView: View {
     }
 
     private var deleteTitle: String {
-        model.tr("删除 \(model.selection.count) 条录音？", "Delete \(model.selection.count) recording(s)?")
+        model.tr("删除 \(model.deleteTargets.count) 条录音？", "Delete \(model.deleteTargets.count) recording(s)?")
     }
 
     @ToolbarContentBuilder
@@ -220,14 +220,14 @@ struct ModelBanner: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("下载模型") { Task { await model.downloadModel() } }
+                Button("下载模型") { Task { await model.downloadModel(model.selectedReuseDescriptor) } }
                     .buttonStyle(.borderedProminent)
             case .downloading(let fraction):
                 ProgressView(value: fraction) { Text("正在下载模型…") }
             case .failed(let message):
                 Text(verbatim: model.tr("模型下载失败：\(message)", "Model download failed: \(message)")).foregroundStyle(.red)
                 Spacer()
-                Button("重试") { Task { await model.downloadModel() } }
+                Button("重试") { Task { await model.downloadModel(model.selectedReuseDescriptor) } }
             case .ready:
                 EmptyView()
             }

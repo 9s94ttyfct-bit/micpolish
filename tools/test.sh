@@ -13,8 +13,13 @@ bin_dir="$(swift build --show-bin-path)"
 # code-signing step, so remove the copies before building and re-add them after.
 rm -f "$bin_dir"/*.xctest/Contents/MacOS/mlx.metallib
 swift build --build-tests >/dev/null
-if [[ ! -s "$bin_dir/mlx.metallib" ]]; then
+# The metallib must match the pinned mlx-swift revision: rebuild it when the
+# pin changes, not only when it is missing.
+mlx_pin="$(grep -A6 '"identity" : "mlx-swift"' Package.resolved | grep '"revision"' | tr -d ' ",' | cut -d: -f2)"
+stamp="$bin_dir/mlx.metallib.revision"
+if [[ ! -s "$bin_dir/mlx.metallib" || "$(cat "$stamp" 2>/dev/null)" != "$mlx_pin" ]]; then
   tools/build_mlx_metallib.sh --output "$bin_dir/mlx.metallib"
+  echo "$mlx_pin" > "$stamp"
 fi
 # Test bundles statically link MLX, so MLX resolves the metallib next to each
 # bundle's own executable.

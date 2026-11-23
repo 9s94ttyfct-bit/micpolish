@@ -19,11 +19,13 @@ struct SettingsView: View {
                         panel.canCreateDirectories = true
                         if panel.runModal() == .OK, let url = panel.url { model.sessionsRoot = url }
                     }
+                    // A running export or batch looks sessions up in the current folder.
+                    .disabled(model.isBusy)
                 }
             }
             Section("录音") {
                 Toggle("停止录音后询问名称", isOn: $model.askNameAfterRecording)
-                Text("关闭后直接用“月日 时.分 录音”作为名称，之后仍可在录音页点铅笔改名。快捷键：⌘R 开始 / 停止并保存，⌘⌫ 丢弃。")
+                Text("关闭后直接用“月日 时.分 录音”作为名称，之后可双击标题或在“更多操作”菜单里改名。快捷键：⌘R 开始 / 停止并保存，⌘⌫ 丢弃。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("AI 模型（共 \(usage / 1_048_576) MB）") {

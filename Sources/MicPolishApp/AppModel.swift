@@ -62,6 +62,12 @@ final class AppModel: ObservableObject {
     @Published var processedURL: URL?
     /// The AI settings `processedURL` was produced with.
     @Published private(set) var processedSettings: ProcessingSettings?
+    /// `processedURL`, only if it was produced with the selected session's
+    /// current AI settings; exporting anything else would not match them.
+    var currentProcessedURL: URL? {
+        guard let processedURL, let m = selected, processedSettings == m.processing else { return nil }
+        return processedURL
+    }
     @Published var exportMessage: String?
     @Published var errorMessage: String?
     @Published var workspaceBytes: Int64 = 0
@@ -76,8 +82,11 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(askNameAfterRecording, forKey: "askNameAfterRecording") }
     }
     @Published var confirmingDiscard = false
-    /// Asks before deleting the selected recordings.
+    /// Asks before deleting `deleteTargets`.
     @Published var confirmingDelete = false
+    @Published private(set) var deleteTargets: Set<UUID> = []
+    /// Sessions a running process, export or batch uses (see `isInUse`).
+    @Published private(set) var sessionsInUse: Set<UUID> = []
     @Published var language: AppLanguage {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "appLanguage")
@@ -116,6 +125,7 @@ final class AppModel: ObservableObject {
     private var enhancers: [String: MambaEnhancer] = [:]
     private var lava: LavaEnhancer?
     private var inworld: InworldIsolator?
+    private var launched = false
     private var processingTask: Task<Void, Never>?
     /// Increments per `process()`, so a superseded run never touches the UI.
     private var processingRun = 0
@@ -179,13 +189,18 @@ final class AppModel: ObservableObject {
 
     // MARK: Lifecycle
 
+    /// Runs once per process. The main window's `.task` calls it again when
+    /// the window is reopened, which must not purge this app's own working
+    /// files or recover a recording that is still running.
     func launch() async {
+        guard !launched else { return }
+        launched = true
         interruptionObserver = recorder.$interruption.compactMap { $0 }.sink { [weak self] interruption in
             guard let self else { return }
             self.refresh()
             if let session = interruption.session {
                 self.applyRememberedMastering(to: session.id)
-                self.select(session.id)
+                self.selectUnlessProcessing(session.id)
             }
             switch (interruption.cause, interruption.session != nil) {
             case (.writeFailed(let detail), true):
@@ -239,16 +254,20 @@ final class AppModel: ObservableObject {
 
     // MARK: Models
 
-    func checkModel() async {
-        let variant = selected?.processing.reuseVariant ?? ModelCatalog.reuse.id
-        let descriptor = ModelCatalog.descriptor(id: variant) ?? ModelCatalog.reuse
-        modelState = await modelStore.installedWeightsURL(descriptor) == nil ? .notInstalled : .ready
+    /// The RE-USE model the selected session uses (the standard one without a selection).
+    var selectedReuseDescriptor: ModelDescriptor {
+        selected.flatMap { ModelCatalog.descriptor(id: $0.processing.reuseVariant) } ?? ModelCatalog.reuse
     }
 
-    /// Downloads a model from Settings. Only the RE-USE model drives the main
-    /// window's `modelState`; other models just install.
-    func downloadModel(_ descriptor: ModelDescriptor = ModelCatalog.reuse) async {
-        let tracksMainModel = descriptor.id.hasPrefix("reuse")
+    func checkModel() async {
+        modelState = await modelStore.installedWeightsURL(selectedReuseDescriptor) == nil ? .notInstalled : .ready
+    }
+
+    /// Downloads a model (the main window's banner passes the selected
+    /// session's RE-USE model). Only that model drives `modelState`; other
+    /// models, e.g. from Settings, just install.
+    func downloadModel(_ descriptor: ModelDescriptor) async {
+        let tracksMainModel = descriptor.id == selectedReuseDescriptor.id
         if tracksMainModel { modelState = .downloading(0) }
         do {
             _ = try await modelStore.install(descriptor) { fraction in
@@ -311,7 +330,7 @@ final class AppModel: ObservableObject {
             }
         }
         refresh()
-        if let last { select(last) }
+        if let last { selectUnlessProcessing(last) }
     }
 
     /// Starts recording from `recordingInput`, or stops and saves the running one.
@@ -345,8 +364,8 @@ final class AppModel: ObservableObject {
             let m = try await recorder.stop(name: defaultRecordingName())
             applyRememberedMastering(to: m.id)
             refresh()
-            select(m.id)
-            if askNameAfterRecording { pendingRename = selected }
+            selectUnlessProcessing(m.id)
+            if askNameAfterRecording { pendingRename = sessions.first { $0.id == m.id } }
         } catch RecorderError.notRecording {
             // The recording already ended on its own (device lost, write error);
             // that interruption is reported separately.
@@ -375,17 +394,22 @@ final class AppModel: ObservableObject {
         return f.string(from: Date())
     }
 
-    /// Rename and delete wait while anything runs: an export or batch item
-    /// in flight writes into the session's folder.
-    private func refuseWhileBusy() -> Bool {
-        guard isBusy else { return false }
-        errorMessage = tr("请等处理或导出完成后再重命名或删除。", "Wait for processing or export to finish before renaming or deleting.")
+    /// Sessions a running process, export or batch reads from or writes into.
+    func isInUse(_ id: UUID) -> Bool { sessionsInUse.contains(id) }
+
+    /// Rename and delete wait for the jobs that use those sessions: an export
+    /// or batch item in flight writes into the session's folder. Other
+    /// sessions (e.g. a recording just made during a batch) stay editable.
+    private func refuseWhileInUse(_ ids: Set<UUID>) -> Bool {
+        guard !sessionsInUse.isDisjoint(with: ids) else { return false }
+        errorMessage = tr("请等这条录音的处理或导出完成后再重命名或删除。",
+                          "Wait for this recording's processing or export to finish before renaming or deleting it.")
         return true
     }
 
     func rename(_ id: UUID, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !refuseWhileBusy() else { return }
+        guard !trimmed.isEmpty, !refuseWhileInUse([id]) else { return }
         do {
             try store.rename(id, to: trimmed)
             refresh()
@@ -394,8 +418,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Asks to delete `ids` (without changing the selection, which would
+    /// cancel a running process).
+    func requestDelete(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        deleteTargets = ids
+        confirmingDelete = true
+    }
+
     func delete(_ ids: Set<UUID>) {
-        guard !refuseWhileBusy() else { return }
+        guard !refuseWhileInUse(ids) else { return }
         if let selectedID, ids.contains(selectedID) { preview.stop() }
         for id in ids {
             try? Workspace(cacheRoot: cacheRoot, sessionID: id).purge()
@@ -405,11 +437,19 @@ final class AppModel: ObservableObject {
         refresh()
     }
 
+    /// Selects a new session (an import, a recording) unless that would
+    /// cancel the running process; the session is then just added to the list.
+    private func selectUnlessProcessing(_ id: UUID) {
+        if !isProcessing { select(id) }
+    }
+
     func updateSelected(_ change: (inout SessionManifest) -> Void) {
         guard var m = selected else { return }
+        let variant = m.processing.reuseVariant
         change(&m)
         try? store.save(m)
         if let i = sessions.firstIndex(where: { $0.id == m.id }) { sessions[i] = m }
+        if m.processing.reuseVariant != variant { Task { await checkModel() } }
     }
 
     /// Preview scratch files live in the session's workspace, so export,
@@ -419,12 +459,13 @@ final class AppModel: ObservableObject {
     }
 
     private func sessionChanged(from previous: UUID?) {
-        processingTask?.cancel()
+        // A running process keeps the app busy ("Cancelling…") until it has
+        // stopped; anything else just resets.
+        if isProcessing { cancelProcessing() } else { processing = .idle }
         gainTask?.cancel()
         gainWork?.cancel()
         currentGain = 0
-        preview.pause()
-        processing = .idle
+        preview.clear()
         processedURL = nil
         studioToneCache = nil
         studioToneAnalysis = nil
@@ -522,10 +563,18 @@ final class AppModel: ObservableObject {
         guard let m = selected, !isBusy else { return }
         processingRun += 1
         let run = processingRun
+        sessionsInUse.insert(m.id)
         processing = .running(stage: tr("准备模型", "Preparing model"), fraction: 0, remaining: nil)
         processingTask = Task {
             // Only the latest run, while its session is still shown, drives the UI.
             @MainActor func owns(_ model: AppModel) -> Bool { model.processingRun == run && model.selectedID == m.id }
+            // The app stays busy until the run has really ended, even after a
+            // cancel or a session switch, so runs never overlap.
+            @MainActor func settle(_ model: AppModel, _ state: ProcessingState) {
+                model.sessionsInUse.remove(m.id)
+                guard model.processingRun == run else { return }
+                model.processing = model.selectedID == m.id ? state : .idle
+            }
             do {
                 let result = try await runPipeline(m) { [weak self] stage, fraction, remaining in
                     guard let self, owns(self), self.isProcessing, self.processingTask?.isCancelled == false else { return }
@@ -534,18 +583,19 @@ final class AppModel: ObservableObject {
                 try Task.checkCancellation()
                 // The result stays cached in that session's workspace; only
                 // touch the UI if the user is still on that session.
-                guard owns(self) else { return }
+                guard owns(self) else { return settle(self, .idle) }
                 processedURL = result.url
                 processedSettings = m.processing
                 lastProcessingSeconds = result.seconds
                 lastRevisions = result.revisions
                 reloadPreview(m, processed: result.url, show: .processed)
-                processing = .done
+                settle(self, .done)
                 refreshLoudnessGain()
+                await checkModel()
             } catch where Task.isCancelled || error is CancellationError {
-                if owns(self) { processing = .idle }
+                settle(self, .idle)
             } catch {
-                if owns(self) { processing = .failed(error.localizedDescription) }
+                settle(self, .failed(error.localizedDescription))
             }
         }
     }
@@ -733,12 +783,14 @@ final class AppModel: ObservableObject {
     }
 
     func export() {
-        guard let m = selected, let processedURL, !isBusy else { return }
+        guard let m = selected, let processedURL = currentProcessedURL, !isBusy else { return }
         isExporting = true
+        sessionsInUse.insert(m.id)
         exportMessage = tr("正在导出…", "Exporting…")
         let seconds = lastProcessingSeconds
         let revisions = lastRevisions
         Task {
+            defer { sessionsInUse.remove(m.id) }
             do {
                 if selectedID == m.id { preview.pause() }
                 let (updated, destination) = try await renderAndExport(m, processed: processedURL, seconds: seconds, revisions: revisions)
@@ -759,12 +811,12 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Toolbar quick export: exports the current session if it is processed,
-    /// otherwise processes and exports it in one go.
+    /// Toolbar quick export: exports the current session if it is processed
+    /// with its current AI settings, otherwise processes and exports it in one go.
     func quickExport() {
         guard let m = selected, !isBusy else { return }
         if exportFolder == nil, !chooseExportFolder() { return }
-        if processedURL != nil { export() } else { processAndExport([m.id]) }
+        if currentProcessedURL != nil { export() } else { processAndExport([m.id]) }
     }
 
     /// One click: AI processing, mastering and export for each session.
@@ -773,7 +825,9 @@ final class AppModel: ObservableObject {
         guard !targets.isEmpty, !isBusy else { return }
         if exportFolder == nil, !chooseExportFolder() { return }
         preview.pause()
+        sessionsInUse.formUnion(targets.map(\.id))
         batchTask = Task {
+            defer { sessionsInUse.subtract(targets.map(\.id)) }
             var exported: [URL] = []
             var failures: [String] = []
             for (index, queued) in targets.enumerated() {
@@ -794,7 +848,7 @@ final class AppModel: ObservableObject {
                 } catch is CancellationError {
                     break
                 } catch {
-                    failures.append("\(m.name)：\(error.localizedDescription)")
+                    failures.append(tr("\(m.name)：\(error.localizedDescription)", "\(m.name): \(error.localizedDescription)"))
                 }
             }
             batch = nil
@@ -820,8 +874,10 @@ final class AppModel: ObservableObject {
         batchTask?.cancel()
     }
 
-    func revealInFinder() {
-        guard let m = selected else { return }
+    /// Shows a session's export (or its folder) in Finder; defaults to the
+    /// selected session. Does not change the selection.
+    func revealInFinder(_ session: SessionManifest? = nil) {
+        guard let m = session ?? selected else { return }
         if let url = store.lastExportURL(for: m), FileManager.default.fileExists(atPath: url.path) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         } else {

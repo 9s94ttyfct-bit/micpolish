@@ -31,7 +31,7 @@ struct SessionListView: View {
                     ContentUnavailableView.search(text: query)
                 }
             }
-            .onDeleteCommand { if !model.selection.isEmpty { model.confirmingDelete = true } }
+            .onDeleteCommand { model.requestDelete(model.selection) }
             .dropDestination(for: URL.self) { urls, _ in
                 model.importFiles(urls.filter { $0.isFileURL })
                 return true
@@ -43,20 +43,15 @@ struct SessionListView: View {
     }
 
     @ViewBuilder private func menu(for session: SessionManifest) -> some View {
+        let targets = model.selection.contains(session.id) ? model.selection : [session.id]
         Button("重命名…") { renaming = session }
+            .disabled(model.isInUse(session.id))
+        Button("在访达中显示") { model.revealInFinder(session) }
+        Button("处理并导出") { model.processAndExport(targets) }
             .disabled(model.isBusy)
-        Button("在访达中显示") { model.select(session.id); model.revealInFinder() }
-        Button("处理并导出") {
-            let ids = model.selection.contains(session.id) ? model.selection : [session.id]
-            model.processAndExport(ids)
-        }
-        .disabled(model.isBusy)
         Divider()
-        Button("删除…", role: .destructive) {
-            if !model.selection.contains(session.id) { model.select(session.id) }
-            model.confirmingDelete = true
-        }
-        .disabled(model.isBusy)
+        Button("删除…", role: .destructive) { model.requestDelete(targets) }
+            .disabled(targets.contains(where: model.isInUse))
     }
 
     /// Sessions matching the search, newest first, grouped by day.

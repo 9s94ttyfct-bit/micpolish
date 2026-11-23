@@ -180,6 +180,22 @@ public final class PreviewPlayer: ObservableObject {
         }
     }
 
+    /// Empties the player (no signal, waveform or duration), e.g. while
+    /// another session's audio is being prepared, so nothing on screen —
+    /// trim handles included — still refers to the previous audio.
+    public func clear() {
+        pause()
+        state.withLock {
+            state.original = nil
+            state.processed = nil
+            state.position = 0
+        }
+        loudness = [:]
+        envelopes = [:]
+        duration = 0
+        position = 0
+    }
+
     /// Converts both signals to 48 kHz Float32 scratch files off the main
     /// thread, measures their loudness, maps them and resets to the start.
     /// A newer `load` call supersedes an older one that is still running.

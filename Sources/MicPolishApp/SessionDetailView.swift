@@ -124,8 +124,11 @@ private struct StepBar: View {
 private struct Header: View {
     @EnvironmentObject private var model: AppModel
     let manifest: SessionManifest
-    @State private var renaming = false
+    /// The session being renamed, fixed when editing starts: the header is
+    /// reused when the selection changes, and focus loss then commits.
+    @State private var renamingID: UUID?
     @State private var name = ""
+    private var renaming: Bool { renamingID != nil }
     @FocusState private var nameFocused: Bool
 
     var body: some View {
@@ -137,7 +140,7 @@ private struct Header: View {
                         .font(.system(size: 24, weight: .semibold))
                         .focused($nameFocused)
                         .onSubmit(commit)
-                        .onExitCommand { renaming = false }
+                        .onExitCommand { renamingID = nil }
                         .onChange(of: nameFocused) { _, focused in if !focused { commit() } }
                 } else {
                     Text(manifest.name)
@@ -161,11 +164,11 @@ private struct Header: View {
             Spacer()
             Menu {
                 Button("重命名…", action: startRenaming)
-                    .disabled(model.isBusy)
+                    .disabled(model.isInUse(manifest.id))
                 Button("在访达中显示") { model.revealInFinder() }
                 Divider()
-                Button("删除…", role: .destructive) { model.confirmingDelete = true }
-                    .disabled(model.isBusy)
+                Button("删除…", role: .destructive) { model.requestDelete([manifest.id]) }
+                    .disabled(model.isInUse(manifest.id))
             } label: {
                 Image(systemName: "ellipsis.circle").font(.title2)
             }
@@ -178,16 +181,16 @@ private struct Header: View {
     }
 
     private func startRenaming() {
-        guard !model.isBusy else { return }
+        guard !model.isInUse(manifest.id) else { return }
         name = manifest.name
-        renaming = true
+        renamingID = manifest.id
         nameFocused = true
     }
 
     private func commit() {
-        guard renaming else { return }
-        renaming = false
-        if name != manifest.name { model.rename(manifest.id, to: name) }
+        guard let id = renamingID else { return }
+        renamingID = nil
+        if name != model.sessions.first(where: { $0.id == id })?.name { model.rename(id, to: name) }
     }
 }
 
@@ -573,13 +576,15 @@ private struct ExportPanel: View {
         Panel {
             ActionRow(summary: model.processedURL == nil
                       ? "导出需要先完成 AI 修复。工具栏的“一键处理并导出”可以一步完成。"
+                      : model.currentProcessedURL == nil
+                      ? "AI 设置改过了，请先重新处理再导出。"
                       : "按母带设置渲染成品并编码。导出后会话里只保留原始录音和这个成品。") {
                 AnyView(Button { model.export() } label: {
                     Label("导出", systemImage: "square.and.arrow.up").padding(.horizontal, 6)
                 }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
-                .disabled(model.processedURL == nil || model.isBusy))
+                .disabled(model.currentProcessedURL == nil || model.isBusy))
             } status: {
                 if let message = model.exportMessage {
                     Label { Text(verbatim: message) } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
@@ -648,7 +653,7 @@ struct BatchSelectionView: View {
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
                 .disabled(model.isBusy)
-                Button(role: .destructive) { model.confirmingDelete = true } label: {
+                Button(role: .destructive) { model.requestDelete(model.selection) } label: {
                     Label("删除所选…", systemImage: "trash")
                 }
                 .controlSize(.large)
