@@ -66,14 +66,19 @@ struct LiveWaveform: View {
             let mid = size.height / 2
             context.fill(Path(CGRect(x: 0, y: mid - 0.5, width: size.width, height: 1)),
                          with: .color(.secondary.opacity(0.25)))
+            var normal = Path(), clipped = Path()
             for (i, peak) in envelope.enumerated() {
                 // Square-root scale: −40 dBFS still shows as a tenth of the height.
                 let h = max(1.5, CGFloat(min(1, peak).squareRoot()) * size.height * 0.95)
                 let x = size.width - CGFloat(envelope.count - i) * barWidth
                 let rect = CGRect(x: x + barWidth * 0.15, y: mid - h / 2, width: max(1, barWidth * 0.7), height: h)
-                context.fill(Path(roundedRect: rect, cornerRadius: 1),
-                             with: .color(peak >= 0.89 ? .red : .accentColor))
+                if peak >= 0.89 { clipped.addRoundedRect(in: rect, cornerSize: CGSize(width: 1, height: 1)) }
+                else { normal.addRoundedRect(in: rect, cornerSize: CGSize(width: 1, height: 1)) }
             }
+            context.fill(normal, with: .linearGradient(
+                Gradient(colors: Brand.waveColors),
+                startPoint: .zero, endPoint: CGPoint(x: size.width, y: 0)))
+            context.fill(clipped, with: .color(.red))
         }
     }
 }

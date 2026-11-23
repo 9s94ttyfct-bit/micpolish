@@ -76,6 +76,8 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(askNameAfterRecording, forKey: "askNameAfterRecording") }
     }
     @Published var confirmingDiscard = false
+    /// Asks before deleting the selected recordings.
+    @Published var confirmingDelete = false
     @Published var language: AppLanguage {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "appLanguage")

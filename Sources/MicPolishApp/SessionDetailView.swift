@@ -4,25 +4,7 @@ import Preview
 import Sessions
 import SwiftUI
 
-/// A titled, rounded card used for each step of the workflow.
-struct Card<Content: View>: View {
-    let title: LocalizedStringKey
-    let systemImage: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage).font(.headline)
-            content
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
-    }
-}
-
-/// The three steps of the workflow; one is shown at a time under the preview.
+/// The three steps of the workflow; one is shown at a time under the player.
 enum WorkflowStep: Int, CaseIterable, Identifiable {
     case restore, master, export
     var id: Int { rawValue }
@@ -34,10 +16,10 @@ struct SessionDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 if let m = model.selected {
                     Header(manifest: m)
-                    PreviewPanel()
+                    PlayerPanel()
                     StepBar(step: $step)
                     switch step {
                     case .restore: ProcessPanel(manifest: m)
@@ -46,56 +28,61 @@ struct SessionDetailView: View {
                     }
                 }
             }
-            .padding(20)
-            .frame(maxWidth: 1100)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
+            .frame(maxWidth: 1080)
             .frame(maxWidth: .infinity)
         }
     }
 }
 
-/// Switches between the workflow steps; each shows whether it is done.
+/// Switches between the workflow steps; each shows whether it is done and
+/// what it is currently set to.
 private struct StepBar: View {
     @EnvironmentObject private var model: AppModel
     @Binding var step: WorkflowStep
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 0) {
             ForEach(WorkflowStep.allCases) { s in
                 let selected = s == step
                 Button { step = s } label: {
                     HStack(spacing: 10) {
                         ZStack {
-                            Circle().fill(selected ? Color.white : Color.accentColor.opacity(0.15))
+                            Circle().fill(selected ? Brand.accent : Color.secondary.opacity(0.14))
                             if done(s) {
-                                Image(systemName: "checkmark").font(.caption.bold())
+                                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
                             } else {
-                                Text(verbatim: "\(s.rawValue + 1)").font(.caption.bold())
+                                Text(verbatim: "\(s.rawValue + 1)").font(.system(size: 11, weight: .semibold))
                             }
                         }
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 24, height: 24)
+                        .foregroundStyle(selected ? .white : .secondary)
+                        .frame(width: 22, height: 22)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(verbatim: title(s)).font(.callout.bold())
-                            Text(verbatim: subtitle(s)).font(.caption2)
-                                .foregroundStyle(selected ? .white.opacity(0.85) : .secondary)
-                                .lineLimit(1)
+                            Text(verbatim: title(s)).font(.callout.weight(selected ? .semibold : .medium))
+                                .foregroundStyle(selected ? .primary : .secondary)
+                            Text(verbatim: subtitle(s)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(selected ? .white : .primary)
-                    .background(RoundedRectangle(cornerRadius: 12)
-                        .fill(selected ? Color.accentColor : Color(nsColor: .controlBackgroundColor)))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? .clear : Color.secondary.opacity(0.2)))
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(selected ? Brand.surface : .clear)
+                            .shadow(color: .black.opacity(selected ? 0.08 : 0), radius: 3, y: 1)
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(verbatim: title(s)))
+                .accessibilityValue(Text(verbatim: subtitle(s)))
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
+        .padding(4)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.secondary.opacity(0.09)))
     }
 
     private func title(_ s: WorkflowStep) -> String {
@@ -106,11 +93,21 @@ private struct StepBar: View {
         }
     }
 
+    /// What the step is set to right now, so the bar doubles as a summary.
     private func subtitle(_ s: WorkflowStep) -> String {
+        guard let m = model.selected else { return "" }
         switch s {
-        case .restore: model.tr("降噪 · 去混响 · 高频", "Noise · reverb · high band")
-        case .master: model.presetName(for: model.selected?.mastering ?? .default) ?? model.tr("自定义", "Custom")
-        case .export: (model.selected?.export.format.rawValue.uppercased() ?? "") + " · " + (model.exportFolder?.lastPathComponent ?? model.tr("会话文件夹", "Session folder"))
+        case .restore:
+            var parts: [String] = []
+            if m.processing.strongDenoise { parts.append(model.tr("强降噪", "Strong denoise")) }
+            parts.append("RE-USE")
+            if m.processing.highBandEnabled { parts.append(model.tr("高频增强", "High band")) }
+            return parts.joined(separator: " + ")
+        case .master:
+            return model.presetName(for: m.mastering) ?? model.tr("自定义", "Custom")
+        case .export:
+            let folder = model.exportFolder?.lastPathComponent ?? model.tr("会话文件夹", "session folder")
+            return model.tr("\(m.export.format.rawValue.uppercased()) 到 \(folder)", "\(m.export.format.rawValue.uppercased()) to \(folder)")
         }
     }
 
@@ -129,69 +126,86 @@ private struct Header: View {
     let manifest: SessionManifest
     @State private var renaming = false
     @State private var name = ""
+    @FocusState private var nameFocused: Bool
 
     var body: some View {
-        let usage = model.diskUsage(of: manifest)
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    if renaming {
-                        TextField("名称", text: $name)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.title2.bold())
-                            .frame(maxWidth: 360)
-                            .onSubmit { model.rename(manifest.id, to: name); renaming = false }
-                    } else {
-                        Text(manifest.name).font(.title2.bold())
-                        Button { name = manifest.name; renaming = true } label: { Image(systemName: "pencil") }
-                            .buttonStyle(.borderless)
-                            .help("重命名…")
-                            .accessibilityLabel("重命名…")
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                if renaming {
+                    TextField("名称", text: $name)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 24, weight: .semibold))
+                        .focused($nameFocused)
+                        .onSubmit(commit)
+                        .onExitCommand { renaming = false }
+                        .onChange(of: nameFocused) { _, focused in if !focused { commit() } }
+                } else {
+                    Text(manifest.name)
+                        .font(.system(size: 24, weight: .semibold))
+                        .lineLimit(1)
+                        .onTapGesture(count: 2, perform: startRenaming)
+                        .help("双击重命名")
+                }
+                HStack(spacing: 14) {
+                    Text(manifest.createdAt, format: .dateTime.month().day().hour().minute())
+                    Text(verbatim: SessionListView.duration(manifest.original.durationSeconds)).monospacedDigit()
+                    Text(verbatim: "\(manifest.original.sampleRate / 1000) kHz")
+                    if manifest.original.imported { Text("导入的文件") }
+                    if manifest.lastExport != nil {
+                        Label("已导出", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                     }
                 }
-                HStack(spacing: 10) {
-                    Label(SessionListView.duration(manifest.original.durationSeconds), systemImage: "clock")
-                    Label { Text(verbatim: "\(manifest.original.sampleRate / 1000) kHz") } icon: { Image(systemName: "waveform") }
-                    Label { Text(verbatim: Self.mb(usage.original)) } icon: { Image(systemName: "doc") }
-                    if usage.export > 0 {
-                        Label { Text(verbatim: Self.mb(usage.export)) } icon: { Image(systemName: "checkmark.seal") }
-                    }
-                    if model.workspaceBytes > 0 {
-                        Label { Text(verbatim: model.tr("临时 \(Self.mb(model.workspaceBytes))", "Scratch \(Self.mb(model.workspaceBytes))")) }
-                            icon: { Image(systemName: "tray") }
-                    }
-                }
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
+                .font(.callout)
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            Button { model.revealInFinder() } label: { Label("在访达中显示", systemImage: "folder") }
-                .help("在访达中显示")
+            Menu {
+                Button("重命名…", action: startRenaming)
+                Button("在访达中显示") { model.revealInFinder() }
+                Divider()
+                Button("删除…", role: .destructive) { model.confirmingDelete = true }
+            } label: {
+                Image(systemName: "ellipsis.circle").font(.title2)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("更多操作")
+            .accessibilityLabel("更多操作")
         }
     }
 
-    static func mb(_ bytes: Int64) -> String {
-        bytes < 1_048_576 ? "\(bytes / 1024) KB" : String(format: "%.1f MB", Double(bytes) / 1_048_576)
+    private func startRenaming() {
+        name = manifest.name
+        renaming = true
+        nameFocused = true
+    }
+
+    private func commit() {
+        guard renaming else { return }
+        renaming = false
+        if name != manifest.name { model.rename(manifest.id, to: name) }
     }
 }
 
-private struct PreviewPanel: View {
+/// The page's main object: the waveform with trim handles, the transport and
+/// the A/B/C source switch.
+private struct PlayerPanel: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var preview: PreviewPlayer
 
     var body: some View {
-        Card(title: "试听对比", systemImage: "headphones") {
-            HStack(spacing: 10) {
-                SourceTab(source: .original, title: "原始", subtitle: "麦克风录到的声音", icon: "mic")
-                SourceTab(source: .processed, title: "AI 处理后", subtitle: "RE-USE 去噪去混响，未做母带", icon: "sparkles")
-                SourceTab(source: .mastered, title: "成品", subtitle: "AI + 母带处理，导出的就是它", icon: "checkmark.seal")
+        Panel(prominent: true) {
+            HStack(spacing: 12) {
+                SourceSwitcher()
+                Spacer()
+                TrimControls()
             }
             ZStack {
                 WaveformView(
                     envelope: preview.envelopes[preview.source == .original ? .original : .processed] ?? preview.envelopes[.original] ?? [],
                     progress: preview.duration > 0 ? preview.position / preview.duration : 0,
-                    tint: preview.source == .original ? .secondary : .accentColor
+                    processed: preview.source != .original
                 ) { fraction in
                     preview.seek(to: fraction * preview.duration)
                 }
@@ -199,61 +213,107 @@ private struct PreviewPanel: View {
                     TrimOverlay(duration: preview.duration, trim: m.trim) { model.setTrim($0) }
                 }
             }
-            .frame(height: 70)
-            TrimBar()
-            HStack {
+            .frame(height: 104)
+            HStack(spacing: 14) {
                 Button {
                     preview.isPlaying ? preview.pause() : preview.play()
                 } label: {
                     Image(systemName: preview.isPlaying ? "pause.fill" : "play.fill")
-                        .frame(width: 22, height: 22)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 38, height: 38)
+                        .background(Circle().fill(Brand.accent))
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.borderedProminent)
-                .clipShape(Circle())
+                .buttonStyle(.plain)
+                .help("播放 / 暂停")
                 .accessibilityLabel(preview.isPlaying ? "暂停" : "播放")
                 Text(verbatim: "\(SessionListView.duration(preview.position)) / \(SessionListView.duration(preview.duration))")
-                    .monospacedDigit().font(.callout)
+                    .font(.system(.title3, design: .rounded).monospacedDigit())
                 Spacer()
+                Text(sourceNote).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
             }
-            Text(model.processedURL == nil
-                 ? "AI 处理后才能切换到“AI 处理后”和“成品”。三路试听按响度对齐，比较的是音质而不是音量。"
-                 : "“AI 处理后”只看 AI 修复的效果（还没调 EQ、压缩和响度）；“成品”在它之上叠加下方的母带处理，用来调参数，导出的就是成品。")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// What the selected source is, in one line.
+    private var sourceNote: LocalizedStringKey {
+        switch preview.source {
+        case .original: model.processedURL == nil ? "原声。AI 处理后可以对比“AI 处理后”和“成品”。" : "麦克风录到的原声"
+        case .processed: "只有 AI 修复，还没做母带"
+        case .mastered: "AI 修复加母带处理，导出的就是它"
         }
     }
 }
 
-private struct SourceTab: View {
+/// Original / Processed / Final. The last two need processed audio.
+private struct SourceSwitcher: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var preview: PreviewPlayer
-    let source: PreviewSource
-    let title: LocalizedStringKey
-    let subtitle: LocalizedStringKey
-    let icon: String
 
     var body: some View {
+        HStack(spacing: 2) {
+            item(.original, "原始")
+            item(.processed, "AI 处理后")
+            item(.mastered, "成品")
+        }
+        .padding(3)
+        .background(Capsule().fill(Color.secondary.opacity(0.1)))
+        .help("三路按响度对齐，比较的是音质而不是音量")
+    }
+
+    private func item(_ source: PreviewSource, _ title: LocalizedStringKey) -> some View {
         let selected = preview.source == source
         let enabled = source == .original || model.processedURL != nil
-        Button { preview.source = source } label: {
-            HStack(spacing: 8) {
-                Image(systemName: icon).font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.callout.bold())
-                    Text(subtitle).font(.caption2).foregroundStyle(selected ? .white.opacity(0.85) : .secondary)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
-            .foregroundStyle(selected ? .white : .primary)
-            .background(RoundedRectangle(cornerRadius: 10).fill(selected ? Color.accentColor : Color.secondary.opacity(0.08)))
+        return Button { preview.source = source } label: {
+            Text(title)
+                .font(.callout.weight(selected ? .semibold : .regular))
+                .foregroundStyle(selected ? .white : (enabled ? .primary : .secondary))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(selected ? Brand.accent : .clear))
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.45)
+        .help(enabled ? "" : "先完成 AI 修复")
         .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The kept span and the quick-trim actions above the waveform.
+private struct TrimControls: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        if let m = model.selected {
+            HStack(spacing: 8) {
+                if let trim = m.trim {
+                    Label {
+                        Text(verbatim: "\(Self.time(trim.start)) – \(Self.time(trim.end))").monospacedDigit()
+                    } icon: { Image(systemName: "scissors") }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .help("只保留这一段；拖动波形两端的手柄调整")
+                }
+                Button { model.autoTrim() } label: { Image(systemName: "wand.and.stars") }
+                    .help("自动去掉首尾静音（两端各留 0.25 秒）")
+                    .accessibilityLabel("自动去首尾静音")
+                Button { model.setTrim(nil) } label: { Image(systemName: "arrow.uturn.backward") }
+                    .disabled(m.trim == nil)
+                    .help("取消裁剪，保留整段录音")
+                    .accessibilityLabel("还原")
+            }
+            .buttonStyle(.borderless)
+            .font(.body)
+        }
+    }
+
+    /// `m:ss.t`
+    static func time(_ seconds: Double) -> String {
+        let tenths = Int((max(0, seconds) * 10).rounded())
+        return String(format: "%d:%02d.%d", tenths / 600, (tenths / 10) % 60, tenths % 10)
     }
 }
 
@@ -307,7 +367,7 @@ private struct TrimOverlay: View {
             )
             .accessibilityElement()
             .accessibilityLabel(label)
-            .accessibilityValue(Text(verbatim: TrimBar.time(value)))
+            .accessibilityValue(Text(verbatim: TrimControls.time(value)))
             .accessibilityAdjustableAction { direction in
                 commit(moved(value + (direction == .increment ? Self.step : -Self.step)))
             }
@@ -330,60 +390,42 @@ private struct TrimHandle: View {
     }
 }
 
-/// The kept span and the quick-trim actions under the waveform.
-private struct TrimBar: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        if let m = model.selected {
-            HStack(spacing: 10) {
-                Image(systemName: "scissors").foregroundStyle(.secondary)
-                if let trim = m.trim {
-                    Text(verbatim: model.tr("保留 \(Self.time(trim.start)) – \(Self.time(trim.end))（\(Self.time(trim.duration))）",
-                                            "Keeping \(Self.time(trim.start)) – \(Self.time(trim.end)) (\(Self.time(trim.duration)))"))
-                        .monospacedDigit()
-                } else {
-                    Text("拖动波形两端的黄色手柄裁掉开头和结尾")
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button { model.autoTrim() } label: { Label("自动去首尾静音", systemImage: "wand.and.stars") }
-                    .help("把开头和结尾的静音裁掉，两端各留 0.25 秒")
-                Button { model.setTrim(nil) } label: { Label("还原", systemImage: "arrow.uturn.backward") }
-                    .disabled(m.trim == nil)
-                    .help("取消裁剪，保留整段录音")
-            }
-            .font(.callout)
-            .controlSize(.small)
-        }
-    }
-
-    /// `m:ss.t`
-    static func time(_ seconds: Double) -> String {
-        let tenths = Int((max(0, seconds) * 10).rounded())
-        return String(format: "%d:%02d.%d", tenths / 600, (tenths / 10) % 60, tenths % 10)
-    }
-}
-
 struct WaveformView: View {
     let envelope: [Float]
     let progress: Double
-    let tint: Color
+    /// The processed sound is drawn in the brand gradient, the original in grey.
+    let processed: Bool
     let onSeek: (Double) -> Void
 
     var body: some View {
         GeometryReader { geo in
-            let bars = max(1, Int(geo.size.width / 3))
+            let step: CGFloat = 4
+            let bars = max(1, Int(geo.size.width / step))
             let peaks = Self.resample(envelope, to: bars)
             Canvas { context, size in
                 let mid = size.height / 2
+                var played = Path(), rest = Path()
                 for (i, peak) in peaks.enumerated() {
-                    let x = CGFloat(i) * 3 + 1
-                    let h = max(1.5, CGFloat(min(1, peak)) * size.height * 0.95)
-                    let played = Double(i) / Double(peaks.count) <= progress
-                    let rect = CGRect(x: x, y: mid - h / 2, width: 2, height: h)
-                    context.fill(Path(roundedRect: rect, cornerRadius: 1),
-                                 with: .color(played ? tint : Color.secondary.opacity(0.35)))
+                    let h = max(2, CGFloat(min(1, peak)) * size.height * 0.96)
+                    let rect = CGRect(x: CGFloat(i) * step + 0.75, y: mid - h / 2, width: step - 1.5, height: h)
+                    if Double(i) / Double(peaks.count) <= progress {
+                        played.addRoundedRect(in: rect, cornerSize: CGSize(width: 1.25, height: 1.25))
+                    } else {
+                        rest.addRoundedRect(in: rect, cornerSize: CGSize(width: 1.25, height: 1.25))
+                    }
+                }
+                if processed {
+                    // Played part in full colour, the rest faded, so the gradient
+                    // marks the processed sound even before playback.
+                    let gradient = GraphicsContext.Shading.linearGradient(
+                        Gradient(colors: Brand.waveColors), startPoint: .zero, endPoint: CGPoint(x: size.width, y: 0))
+                    context.fill(played, with: gradient)
+                    var faded = context
+                    faded.opacity = 0.32
+                    faded.fill(rest, with: gradient)
+                } else {
+                    context.fill(rest, with: .color(.secondary.opacity(0.28)))
+                    context.fill(played, with: .color(.primary.opacity(0.7)))
                 }
             }
             .contentShape(Rectangle())
@@ -392,6 +434,7 @@ struct WaveformView: View {
             })
         }
         .accessibilityLabel("波形")
+        .accessibilityHint("点击跳到该位置")
     }
 
     static func resample(_ envelope: [Float], to count: Int) -> [Float] {
@@ -401,6 +444,24 @@ struct WaveformView: View {
             let start = i * envelope.count / count
             let end = max(start + 1, (i + 1) * envelope.count / count)
             return (envelope[start..<min(end, envelope.count)].max() ?? 0) / peak
+        }
+    }
+}
+
+/// The primary action of a step, with its status underneath.
+private struct ActionRow<Status: View>: View {
+    let summary: LocalizedStringKey
+    @ViewBuilder let action: () -> AnyView
+    @ViewBuilder let status: Status
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 16) {
+                Text(summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                action()
+            }
+            status
         }
     }
 }
@@ -418,39 +479,40 @@ private struct ProcessPanel: View {
     }
 
     var body: some View {
-        Card(title: "AI 修复", systemImage: "sparkles") {
-            HStack {
-                Text("按顺序运行下面开启的模型。点开每一项可以看说明和参数。")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer()
-                if model.isProcessing {
-                    Button("取消") { model.cancelProcessing() }
-                } else {
-                    Button { model.process() } label: {
-                        Label(model.processedURL == nil ? "处理" : "重新处理", systemImage: "play.circle")
+        Panel {
+            ActionRow(summary: "去掉噪声和房间回声，修复麦克风音色。开启的模型会按下面的顺序运行。") {
+                AnyView(Group {
+                    if model.isProcessing {
+                        Button("取消") { model.cancelProcessing() }.controlSize(.large)
+                    } else {
+                        Button { model.process() } label: {
+                            Label(model.processedURL == nil ? "开始处理" : "重新处理", systemImage: "sparkles")
+                                .padding(.horizontal, 6)
+                        }
+                        .controlSize(.large)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isBusy || (model.modelState != .ready && model.modelState != .notInstalled))
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.isBusy || (model.modelState != .ready && model.modelState != .notInstalled))
-                }
+                })
+            } status: {
+                status
             }
             VStack(alignment: .leading, spacing: 0) {
                 Divider()
                 OptionRow(title: "强降噪（Inworld）", systemImage: "waveform.badge.minus",
                           isOn: processing.strongDenoise) {
-                    Text("在 AI 修复之前先把人声从强背景噪声（音乐、人声嘈杂、风扇）里分离出来；安静环境下不需要。首次使用会下载约 256 MB 的模型。")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Hint("先把人声从强背景声（音乐、人群、风扇）里分离出来，再做 AI 修复。安静的房间不需要。首次使用下载约 256 MB 的模型。")
                 }
                 OptionRow(title: "AI 修复（RE-USE）", systemImage: "sparkles",
                           summary: manifest.processing.reuseVariant == "reuse-nemotron-laughter"
                               ? model.tr("保留笑声", "Keeps laughter") : nil) {
                     Picker("模型", selection: processing.reuseVariant) {
-                        Text(verbatim: "RE-USE").tag("reuse-nemotron")
-                        Text("RE-USE（保留笑声）").tag("reuse-nemotron-laughter")
+                        Text("标准").tag("reuse-nemotron")
+                        Text("保留笑声").tag("reuse-nemotron-laughter")
                     }
-                    .frame(width: 300)
-                    Text("去除噪声和房间混响，修复麦克风音色。处理完会自动切到“AI 处理后”试听。")
-                        .font(.caption).foregroundStyle(.secondary)
+                    .pickerStyle(.segmented)
+                    .frame(width: 240)
+                    Hint("去噪、去混响、修复音色。录音里有笑声时选“保留笑声”，避免笑声被当成噪声去掉。")
                 }
                 OptionRow(title: "高频增强（LavaSR）", systemImage: "waveform.path.ecg",
                           summary: cutoffLabel(manifest.processing.highBandCutoff),
@@ -461,34 +523,41 @@ private struct ProcessPanel: View {
                         Text(verbatim: "12 kHz").tag(HighBandCutoff.hz12000)
                         Text(verbatim: "16 kHz").tag(HighBandCutoff.hz16000)
                     }
-                    .frame(width: 220)
-                    Text("在 AI 修复之后重新生成起始频率以上的高频，让声音更通透；低于起始频率的部分保持不变。“自动”按录音实际带宽决定。首次使用会下载约 56 MB 的模型。")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .pickerStyle(.segmented)
+                    .frame(width: 320)
+                    Hint("重新生成起始频率以上的高频，低于它的部分不变。适合电话、语音消息这类低采样率的导入文件；MacBook 录音一般不需要。首次使用下载约 56 MB 的模型。")
                 }
             }
-            switch model.processing {
-            case .idle:
-                if manifest.lastExport != nil, let estimate = model.estimatedProcessingSeconds {
-                    Text(verbatim: model.tr("这个会话已导出过；中间文件已清理，重新调整需要再跑一次 AI（约 \(Int(estimate.rounded())) 秒）。",
-                                            "This session was exported and its intermediate files were removed; adjusting it again re-runs the AI (about \(Int(estimate.rounded())) s)."))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            case .running(let stage, let fraction, let remaining):
-                ProgressView(value: fraction) {
-                    Text(verbatim: stage)
-                } currentValueLabel: {
-                    let backend = model.lastBackendLabel
-                    Text(verbatim: remaining.map { model.tr("\(backend) · 剩余约 \(Int($0.rounded())) 秒", "\(backend) · about \(Int($0.rounded())) s left") } ?? backend)
-                }
-            case .done:
-                Label {
-                    Text(verbatim: model.tr("处理完成 · \(model.lastBackendLabel)", "Processing complete · \(model.lastBackendLabel)"))
-                } icon: { Image(systemName: "checkmark.circle.fill") }
-                .foregroundStyle(.green)
-            case .failed(let message):
-                Text(verbatim: model.tr("处理失败：\(message)", "Processing failed: \(message)")).foregroundStyle(.red)
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        switch model.processing {
+        case .idle:
+            if manifest.lastExport != nil, let estimate = model.estimatedProcessingSeconds {
+                Hint(LocalizedStringKey(model.tr("已导出过，中间文件已清理；再次试听或修改需要重新处理（约 \(Int(estimate.rounded())) 秒）。",
+                                                 "Already exported and its intermediate files were removed; listening again or changing it re-runs the AI (about \(Int(estimate.rounded())) s).")))
             }
+        case .running(let stage, let fraction, let remaining):
+            ProgressView(value: fraction) {
+                Text(verbatim: stage).font(.callout)
+            } currentValueLabel: {
+                let backend = model.lastBackendLabel
+                Text(verbatim: remaining.map { model.tr("\(backend)，还剩约 \(Int($0.rounded())) 秒", "\(backend), about \(Int($0.rounded())) s left") } ?? backend)
+            }
+            .tint(Brand.accent)
+        case .done:
+            Label {
+                Text(verbatim: model.tr("处理完成（\(model.lastBackendLabel)）", "Processed (\(model.lastBackendLabel))"))
+            } icon: { Image(systemName: "checkmark.circle.fill") }
+            .font(.callout)
+            .foregroundStyle(.green)
+        case .failed(let message):
+            Label {
+                Text(verbatim: model.tr("处理失败：\(message)", "Processing failed: \(message)"))
+            } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+            .font(.callout)
+            .foregroundStyle(.red)
         }
     }
 }
@@ -498,74 +567,91 @@ private struct ExportPanel: View {
     let manifest: SessionManifest
 
     var body: some View {
-        Card(title: "导出", systemImage: "square.and.arrow.up") {
-            HStack(spacing: 16) {
-                Picker("格式", selection: Binding(
-                    get: { manifest.export.format },
-                    set: { f in model.updateSelected { $0.export.format = f } })) {
-                    Text(verbatim: "M4A (AAC)").tag(ExportFormat.m4a)
-                    Text(verbatim: "MP3").tag(ExportFormat.mp3)
+        Panel {
+            ActionRow(summary: model.processedURL == nil
+                      ? "导出需要先完成 AI 修复。工具栏的“一键处理并导出”可以一步完成。"
+                      : "按母带设置渲染成品并编码。导出后会话里只保留原始录音和这个成品。") {
+                AnyView(Button { model.export() } label: {
+                    Label("导出", systemImage: "square.and.arrow.up").padding(.horizontal, 6)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 220)
-                Picker("码率", selection: Binding(
-                    get: { manifest.export.bitrateKbps },
-                    set: { b in model.updateSelected { $0.export.bitrateKbps = b } })) {
-                    ForEach(ExportOptions.bitrates, id: \.self) { Text(verbatim: "\($0) kbps").tag($0) }
+                .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .disabled(model.processedURL == nil || model.isBusy))
+            } status: {
+                if let message = model.exportMessage {
+                    Label { Text(verbatim: message) } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                        .font(.callout)
                 }
-                .frame(width: 180)
-                Spacer()
-                Button { model.export() } label: { Label("导出", systemImage: "square.and.arrow.up") }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.processedURL == nil || model.isBusy)
             }
-            HStack(spacing: 8) {
-                Image(systemName: "folder").foregroundStyle(.secondary)
-                Text("导出到").foregroundStyle(.secondary)
-                Text(verbatim: model.exportFolder?.path ?? model.tr("会话文件夹", "Session folder"))
-                    .lineLimit(1).truncationMode(.middle)
-                Spacer()
-                Button("更改…") { _ = model.chooseExportFolder() }
-                if model.exportFolder != nil {
-                    Button("改回会话文件夹") { model.exportFolder = nil }
+            Divider()
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 14) {
+                GridRow {
+                    Text("格式").foregroundStyle(.secondary)
+                    Picker("格式", selection: Binding(
+                        get: { manifest.export.format },
+                        set: { f in model.updateSelected { $0.export.format = f } })) {
+                        Text(verbatim: "M4A (AAC)").tag(ExportFormat.m4a)
+                        Text(verbatim: "MP3").tag(ExportFormat.mp3)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 220)
+                }
+                GridRow {
+                    Text("码率").foregroundStyle(.secondary)
+                    Picker("码率", selection: Binding(
+                        get: { manifest.export.bitrateKbps },
+                        set: { b in model.updateSelected { $0.export.bitrateKbps = b } })) {
+                        ForEach(ExportOptions.bitrates, id: \.self) { Text(verbatim: "\($0) kbps").tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 280)
+                }
+                GridRow {
+                    Text("位置").foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Label {
+                            Text(verbatim: model.exportFolder?.path ?? model.tr("每条录音自己的会话文件夹", "Each recording's session folder"))
+                                .lineLimit(1).truncationMode(.middle)
+                        } icon: { Image(systemName: "folder") }
+                        Button("更改…") { _ = model.chooseExportFolder() }
+                        if model.exportFolder != nil {
+                            Button("改回会话文件夹") { model.exportFolder = nil }
+                        }
+                    }
                 }
             }
             .font(.callout)
-            if let message = model.exportMessage {
-                Text(verbatim: message).font(.caption).foregroundStyle(.secondary)
-            } else if model.processedURL == nil {
-                Text("先完成 AI 处理再导出，或用工具栏的“一键处理并导出”。导出后只保留原始录音和成品文件。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
         }
     }
 }
 
 struct BatchSelectionView: View {
     @EnvironmentObject private var model: AppModel
-    @Binding var confirmingDelete: Bool
 
     var body: some View {
         let chosen = model.sessions.filter { model.selection.contains($0.id) }
         let total = chosen.reduce(0) { $0 + $1.original.durationSeconds }
-        VStack(spacing: 18) {
-            Image(systemName: "square.stack.3d.up.fill").font(.system(size: 44)).foregroundStyle(.secondary)
-            Text(verbatim: model.tr("已选 \(chosen.count) 条录音", "\(chosen.count) recordings selected")).font(.title2.bold())
-            Text(verbatim: model.tr("总时长 \(SessionListView.duration(total))", "Total \(SessionListView.duration(total))"))
+        VStack(spacing: 16) {
+            Image(systemName: "square.stack.3d.up").font(.system(size: 40, weight: .light)).foregroundStyle(Brand.accent)
+            Text(verbatim: model.tr("已选 \(chosen.count) 条录音", "\(chosen.count) recordings selected")).font(.title2.weight(.semibold))
+            Text(verbatim: model.tr("共 \(SessionListView.duration(total))", "\(SessionListView.duration(total)) in total"))
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Button { model.processAndExport(model.selection) } label: {
-                    Label("一键处理并导出", systemImage: "wand.and.stars")
+                    Label("全部处理并导出", systemImage: "wand.and.stars")
                 }
+                .controlSize(.large)
                 .buttonStyle(.borderedProminent)
                 .disabled(model.isBusy)
-                Button(role: .destructive) { confirmingDelete = true } label: {
-                    Label("删除所选", systemImage: "trash")
+                Button(role: .destructive) { model.confirmingDelete = true } label: {
+                    Label("删除所选…", systemImage: "trash")
                 }
+                .controlSize(.large)
             }
-            Text(verbatim: model.tr("导出到：\(model.exportFolder?.path ?? "（首次会询问文件夹）")",
-                                    "Export to: \(model.exportFolder?.path ?? "(you will be asked for a folder)")"))
-                .font(.caption).foregroundStyle(.secondary)
+            Hint(LocalizedStringKey(model.tr("导出到：\(model.exportFolder?.path ?? "第一次会请你选择文件夹")",
+                                             "Export to: \(model.exportFolder?.path ?? "you will be asked for a folder the first time")")))
         }
         .padding(40)
     }

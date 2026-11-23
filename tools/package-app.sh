@@ -74,7 +74,8 @@ codesign --verify --deep --strict "$app"
 
 # A running copy resolves resources (mlx.metallib, localizations) by bundle path,
 # so never replace the bundle under it.
-if pgrep -f "$root/$final/Contents/MacOS/MicPolish" >/dev/null; then
+# Match relative launches (`dist/MicPolish.app/...`) as well as absolute ones.
+if pgrep -f "$final/Contents/MacOS/MicPolish" >/dev/null; then
   echo "MicPolish is running from $final; quit it and rerun this script. New build left in $app" >&2
   exit 1
 fi

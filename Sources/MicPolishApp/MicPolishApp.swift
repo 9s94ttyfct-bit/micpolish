@@ -15,6 +15,7 @@ struct MicPolishApp: App {
                 .environmentObject(model.recorder)
                 .environmentObject(model.preview)
                 .environment(\.locale, model.locale)
+                .tint(Brand.accent)
                 .frame(minWidth: 1160, minHeight: 720)
                 .task {
                     delegate.model = model
@@ -33,6 +34,7 @@ struct MicPolishApp: App {
             SettingsView()
                 .environmentObject(model)
                 .environment(\.locale, model.locale)
+                .tint(Brand.accent)
         }
     }
 }
@@ -78,12 +80,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var importing = false
-    @State private var confirmingDelete = false
     @EnvironmentObject private var recorder: Recorder
 
     var body: some View {
         NavigationSplitView {
-            SessionListView(confirmingDelete: $confirmingDelete)
+            SessionListView()
                 .navigationSplitViewColumnWidth(min: 250, ideal: 280)
         } detail: {
             VStack(spacing: 0) {
@@ -93,12 +94,11 @@ struct ContentView: View {
                     if recorder.isRecording {
                         LiveRecordingView()
                     } else if model.selection.count > 1 {
-                        BatchSelectionView(confirmingDelete: $confirmingDelete)
+                        BatchSelectionView()
                     } else if model.selected != nil {
                         SessionDetailView()
                     } else {
-                        ContentUnavailableView("还没有录音", systemImage: "waveform.badge.mic",
-                                               description: Text("点左上角的录音按钮开始，或导入一个音频文件。"))
+                        EmptyStateView(importing: $importing)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -109,7 +109,7 @@ struct ContentView: View {
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { model.importFiles(urls) }
         }
-        .confirmationDialog(deleteTitle, isPresented: $confirmingDelete) {
+        .confirmationDialog(deleteTitle, isPresented: $model.confirmingDelete) {
             Button("删除", role: .destructive) { model.delete(model.selection) }
         } message: {
             Text("原始录音和导出到会话文件夹的成品都会被删除，无法恢复。")
@@ -123,7 +123,7 @@ struct ContentView: View {
         .sheet(item: $model.pendingRename) { session in
             RenameSheet(session: session)
         }
-        .alert("出错了", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
+        .alert("无法完成操作", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("好") { model.errorMessage = nil }
         } message: {
             Text(model.errorMessage ?? "")

@@ -14,9 +14,9 @@ struct MasteringPanel: View {
     }
 
     var body: some View {
-        Card(title: "母带处理", systemImage: "slider.horizontal.3") {
+        Panel {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     Text("预设").foregroundStyle(.secondary)
                     Menu {
                         Button("默认") { model.setMastering(.default) }
@@ -46,7 +46,7 @@ struct MasteringPanel: View {
                     .frame(width: 220)
                     .accessibilityLabel("预设")
                     Spacer()
-                    Text("新录音会沿用你最后一次选择的设置。").font(.caption).foregroundStyle(.secondary)
+                    Hint("改动即时作用于“成品”试听；新录音沿用最后一次的设置。")
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     Divider()
