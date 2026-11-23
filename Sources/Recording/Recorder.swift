@@ -38,6 +38,10 @@ public final class Recorder: ObservableObject {
     @Published public private(set) var isRecording = false
     @Published public private(set) var levelDBFS: Float = -120
     @Published public private(set) var elapsed: TimeInterval = 0
+    /// Peaks of the most recent 50 ms buckets (newest last, at most
+    /// `liveEnvelopeCapacity`), for a scrolling waveform while recording.
+    @Published public private(set) var liveEnvelope: [Float] = []
+    public static let liveEnvelopeCapacity = 400
     /// Input devices, kept current as devices connect and disconnect.
     @Published public private(set) var inputs: [AudioInput] = []
     /// Set when capture stopped on its own (disk full, input device lost);
@@ -120,6 +124,7 @@ public final class Recorder: ObservableObject {
         self.capture = capture
         self.sink = sink
         elapsed = 0
+        liveEnvelope = []
         interruption = nil
         stopping = false
         isRecording = true
@@ -138,6 +143,12 @@ public final class Recorder: ObservableObject {
         guard isRecording, !stopping, let sink, let capture else { return }
         levelDBFS = sink.peakDBFS
         elapsed = Date().timeIntervalSince(started)
+        let buckets = sink.takeEnvelope()
+        if !buckets.isEmpty {
+            var envelope = liveEnvelope + buckets
+            if envelope.count > Self.liveEnvelopeCapacity { envelope.removeFirst(envelope.count - Self.liveEnvelopeCapacity) }
+            liveEnvelope = envelope
+        }
         let cause: Interruption.Cause?
         if let failure = sink.failure {
             cause = .writeFailed(failure.localizedDescription)
@@ -157,7 +168,24 @@ public final class Recorder: ObservableObject {
     /// Stops capture and creates a session from the recording. Throws
     /// `nothingCaptured` (and keeps no file) when no audio arrived.
     public func stop(name: String) async throws -> SessionManifest {
-        guard let capture, let sink else { throw RecorderError.notRecording }
+        guard let sink = endCapture() else { throw RecorderError.notRecording }
+        guard let caf = try sink.finish() else { throw RecorderError.nothingCaptured }
+        let store = store
+        return try await Task.detached {
+            try RecordingRecovery.adopt(caf: caf, name: name, store: store)
+        }.value
+    }
+
+    /// Stops capture and deletes everything recorded; no session is created.
+    public func discard() {
+        endCapture()?.discard()
+    }
+
+    /// Stops the device and resets the published state; returns the sink of
+    /// the recording that was running, if any.
+    @discardableResult
+    private func endCapture() -> RecordingSink? {
+        guard let capture, let sink else { return nil }
         timer?.invalidate()
         timer = nil
         capture.stop()
@@ -165,12 +193,8 @@ public final class Recorder: ObservableObject {
         self.sink = nil
         isRecording = false
         levelDBFS = -120
-
-        guard let caf = try sink.finish() else { throw RecorderError.nothingCaptured }
-        let store = store
-        return try await Task.detached {
-            try RecordingRecovery.adopt(caf: caf, name: name, store: store)
-        }.value
+        liveEnvelope = []
+        return sink
     }
 
     static func inputDevices() -> [AudioInput] {

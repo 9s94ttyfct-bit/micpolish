@@ -1371,6 +1371,146 @@
           }
         }
       }
+    },
+    "停止并保存（⌘R）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop and Save (⌘R)"
+          }
+        }
+      }
+    },
+    "开始录音（⌘R）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Recording (⌘R)"
+          }
+        }
+      }
+    },
+    "丢弃这段录音（⌘⌫）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard This Recording (⌘⌫)"
+          }
+        }
+      }
+    },
+    "丢弃录音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard Recording"
+          }
+        }
+      }
+    },
+    "正在录音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording"
+          }
+        }
+      }
+    },
+    "实时波形": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live waveform"
+          }
+        }
+      }
+    },
+    "丢弃": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard"
+          }
+        }
+      }
+    },
+    "停止后会先保存，再请你命名。快捷键：⌘R 开始 / 停止，⌘⌫ 丢弃。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping saves first, then asks for a name. Shortcuts: ⌘R start / stop, ⌘⌫ discard."
+          }
+        }
+      }
+    },
+    "停止后直接用默认名称保存（可在设置里改）。快捷键：⌘R 开始 / 停止，⌘⌫ 丢弃。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping saves under the default name (change this in Settings). Shortcuts: ⌘R start / stop, ⌘⌫ discard."
+          }
+        }
+      }
+    },
+    "丢弃这段录音？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard this recording?"
+          }
+        }
+      }
+    },
+    "录到的内容会被删除，不会保存。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What was recorded is deleted and not saved."
+          }
+        }
+      }
+    },
+    "以后不再询问，直接用默认名称": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again; keep the default name"
+          }
+        }
+      }
+    },
+    "停止录音后询问名称": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask for a name after stopping"
+          }
+        }
+      }
+    },
+    "关闭后直接用“月日 时.分 录音”作为名称，之后仍可在录音页点铅笔改名。快捷键：⌘R 开始 / 停止并保存，⌘⌫ 丢弃。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, recordings keep their default date-and-time name; rename later with the pencil. Shortcuts: ⌘R start / stop and save, ⌘⌫ discard."
+          }
+        }
+      }
     }
   }
 }

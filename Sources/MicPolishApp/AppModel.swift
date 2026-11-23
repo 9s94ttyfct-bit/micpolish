@@ -69,6 +69,13 @@ final class AppModel: ObservableObject {
     @Published var batch: BatchState?
     /// A just-finished recording waiting for the user to name it.
     @Published var pendingRename: SessionManifest?
+    /// Input to record from; nil is the system default input.
+    @Published var recordingInput: AudioInput?
+    /// Whether stopping a recording asks for a name (otherwise the default name stays).
+    @Published var askNameAfterRecording = UserDefaults.standard.object(forKey: "askNameAfterRecording") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(askNameAfterRecording, forKey: "askNameAfterRecording") }
+    }
+    @Published var confirmingDiscard = false
     @Published var language: AppLanguage {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "appLanguage")
@@ -286,12 +293,20 @@ final class AppModel: ObservableObject {
         if let last { select(last) }
     }
 
+    /// Starts recording from `recordingInput`, or stops and saves the running one.
+    func toggleRecording() {
+        Task {
+            if recorder.isRecording { await stopRecording() } else { await startRecording(input: recordingInput) }
+        }
+    }
+
     func startRecording(input: AudioInput?) async {
         guard await Recorder.requestAccess() else {
             errorMessage = tr("没有麦克风权限。请在“系统设置 › 隐私与安全性 › 麦克风”中允许 MicPolish。",
                               "No microphone access. Allow MicPolish in System Settings › Privacy & Security › Microphone.")
             return
         }
+        preview.pause()
         do {
             try recorder.start(input: input)
         } catch {
@@ -299,17 +314,31 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Stops and saves the recording first, then asks for a name.
+    /// Stops and saves the recording under the default name, then asks for a
+    /// name unless the user turned that off.
     func stopRecording() async {
         do {
             let m = try await recorder.stop(name: defaultRecordingName())
             applyRememberedMastering(to: m.id)
             refresh()
             select(m.id)
-            pendingRename = selected
+            if askNameAfterRecording { pendingRename = selected }
+        } catch RecorderError.nothingCaptured {
+            errorMessage = tr("没有录到声音，没有保存。", "Nothing was captured, so nothing was saved.")
         } catch {
             errorMessage = tr("保存录音失败：\(error.localizedDescription)", "Saving the recording failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Asks before throwing the running recording away.
+    func requestDiscard() {
+        if recorder.isRecording { confirmingDiscard = true }
+    }
+
+    /// Stops the running recording and deletes it; nothing is saved.
+    func discardRecording() {
+        confirmingDiscard = false
+        recorder.discard()
     }
 
     func defaultRecordingName() -> String {

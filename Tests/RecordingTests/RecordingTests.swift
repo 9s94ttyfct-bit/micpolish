@@ -97,6 +97,19 @@ final class RecordingTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
+    func testSinkReportsLiveEnvelopeOnceAndDiscardDeletesTheFile() throws {
+        let (format, buffers) = stereoBuffers(seconds: 1, sampleRate: 48_000)
+        let url = dir.appendingPathComponent("live.caf")
+        let sink = try RecordingSink(url: url, inputSampleRate: Int(format.sampleRate))
+        for b in buffers { try sink.append(b) }
+        let envelope = sink.takeEnvelope()
+        XCTAssertEqual(envelope.count, 20)                       // 50 ms buckets
+        for peak in envelope { XCTAssertEqual(peak, 0.1875, accuracy: 0.002) }
+        XCTAssertTrue(sink.takeEnvelope().isEmpty)              // each bucket is handed out once
+        sink.discard()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
     func testRecoveryKeepsCAFWhenSessionCannotBeCreated() throws {
         let cache = dir.appendingPathComponent("cache")
         let recordingDir = cache.appendingPathComponent("recording")

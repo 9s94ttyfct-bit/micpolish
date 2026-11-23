@@ -12,6 +12,12 @@ public final class RecordingSink: @unchecked Sendable {
     private var lastPeak: Float = 0
     public private(set) var framesWritten = 0
     private var storedFailure: Error?
+    /// Peaks of completed 50 ms buckets not yet taken by `takeEnvelope()`.
+    private var pendingBuckets: [Float] = []
+    private var bucketPeak: Float = 0
+    private var bucketFill = 0
+    /// Samples (48 kHz) per waveform bucket.
+    public static let bucketFrames = AudioCore.sampleRate / 20
 
     /// The first write error, if any. Capture runs on Core Audio's thread, so
     /// the recorder polls this to notice a full disk instead of losing audio
@@ -74,8 +80,32 @@ public final class RecordingSink: @unchecked Sendable {
         lock.lock()
         lastPeak = peak
         framesWritten += out.count
+        for s in out {
+            bucketPeak = max(bucketPeak, abs(s))
+            bucketFill += 1
+            if bucketFill == Self.bucketFrames {
+                pendingBuckets.append(bucketPeak)
+                bucketPeak = 0
+                bucketFill = 0
+            }
+        }
         lock.unlock()
         try writer.append(out)
+    }
+
+    /// Returns the 50 ms peak buckets completed since the last call, for a
+    /// live waveform.
+    public func takeEnvelope() -> [Float] {
+        lock.withLock {
+            defer { pendingBuckets.removeAll(keepingCapacity: true) }
+            return pendingBuckets
+        }
+    }
+
+    /// Closes the file and deletes it: the recording is thrown away.
+    public func discard() {
+        try? writer.close()
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// Closes the file. Returns nil, and deletes it, when nothing was captured.

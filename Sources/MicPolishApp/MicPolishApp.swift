@@ -1,4 +1,5 @@
 import AppKit
+import Recording
 import Sessions
 import SwiftUI
 
@@ -26,6 +27,7 @@ struct MicPolishApp: App {
         }
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified)
+        .commands { RecordingCommands(model: model, recorder: model.recorder) }
 
         Settings {
             SettingsView()
@@ -77,6 +79,7 @@ struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var importing = false
     @State private var confirmingDelete = false
+    @EnvironmentObject private var recorder: Recorder
 
     var body: some View {
         NavigationSplitView {
@@ -87,7 +90,9 @@ struct ContentView: View {
                 if model.modelState != .ready { ModelBanner() }
                 if let batch = model.batch { BatchBanner(batch: batch) }
                 Group {
-                    if model.selection.count > 1 {
+                    if recorder.isRecording {
+                        LiveRecordingView()
+                    } else if model.selection.count > 1 {
                         BatchSelectionView(confirmingDelete: $confirmingDelete)
                     } else if model.selected != nil {
                         SessionDetailView()
@@ -108,6 +113,12 @@ struct ContentView: View {
             Button("删除", role: .destructive) { model.delete(model.selection) }
         } message: {
             Text("原始录音和导出到会话文件夹的成品都会被删除，无法恢复。")
+        }
+        .confirmationDialog("丢弃这段录音？", isPresented: $model.confirmingDiscard) {
+            Button("丢弃", role: .destructive) { model.discardRecording() }
+                .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("录到的内容会被删除，不会保存。")
         }
         .sheet(item: $model.pendingRename) { session in
             RenameSheet(session: session)
@@ -173,6 +184,9 @@ struct RenameSheet: View {
             TextField("名称", text: $name)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(save)
+            Toggle("以后不再询问，直接用默认名称", isOn: Binding(
+                get: { !model.askNameAfterRecording }, set: { model.askNameAfterRecording = !$0 }))
+                .font(.callout)
             HStack {
                 Spacer()
                 Button("保留默认名称") { dismiss() }

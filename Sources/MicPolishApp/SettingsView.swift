@@ -21,6 +21,11 @@ struct SettingsView: View {
                     }
                 }
             }
+            Section("录音") {
+                Toggle("停止录音后询问名称", isOn: $model.askNameAfterRecording)
+                Text("关闭后直接用“月日 时.分 录音”作为名称，之后仍可在录音页点铅笔改名。快捷键：⌘R 开始 / 停止并保存，⌘⌫ 丢弃。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("AI 模型（共 \(usage / 1_048_576) MB）") {
                 ForEach(ModelCatalog.all, id: \.id) { d in
                     HStack {
@@ -72,7 +77,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 520)
+        .frame(width: 560, height: 600)
         .task { await reload() }
     }
 

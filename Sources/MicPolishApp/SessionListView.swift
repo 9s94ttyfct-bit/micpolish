@@ -119,18 +119,11 @@ private struct RenameSessionSheet: View {
 struct RecordPanel: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var recorder: Recorder
-    @State private var selectedInput: AudioInput?
 
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 12) {
-                Button {
-                    if recorder.isRecording {
-                        Task { await model.stopRecording() }
-                    } else {
-                        Task { await model.startRecording(input: selectedInput) }
-                    }
-                } label: {
+                Button { model.toggleRecording() } label: {
                     ZStack {
                         Circle().fill(recorder.isRecording ? Color.red.opacity(0.15) : Color.red)
                             .frame(width: 44, height: 44)
@@ -142,17 +135,24 @@ struct RecordPanel: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .help(recorder.isRecording ? "停止并保存" : "开始录音")
+                .help(recorder.isRecording ? "停止并保存（⌘R）" : "开始录音（⌘R）")
                 .accessibilityLabel(recorder.isRecording ? "停止" : "录音")
 
                 VStack(alignment: .leading, spacing: 6) {
                     if recorder.isRecording {
-                        Text(SessionListView.duration(recorder.elapsed))
-                            .font(.system(.title3, design: .rounded).monospacedDigit())
+                        HStack {
+                            Text(SessionListView.duration(recorder.elapsed))
+                                .font(.system(.title3, design: .rounded).monospacedDigit())
+                            Spacer()
+                            Button { model.requestDiscard() } label: { Image(systemName: "trash") }
+                                .buttonStyle(.borderless)
+                                .help("丢弃这段录音（⌘⌫）")
+                                .accessibilityLabel("丢弃录音")
+                        }
                         LevelMeter(dBFS: recorder.levelDBFS)
                     } else {
                         Text("新录音").font(.headline)
-                        Picker("输入", selection: $selectedInput) {
+                        Picker("输入", selection: $model.recordingInput) {
                             Text("系统默认输入").tag(AudioInput?.none)
                             ForEach(recorder.inputs) { Text(verbatim: $0.name).tag(AudioInput?.some($0)) }
                         }
@@ -174,7 +174,7 @@ struct RecordPanel: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
         // A disconnected device falls back to the system default.
         .onChange(of: recorder.inputs) { _, inputs in
-            if let selected = selectedInput, !inputs.contains(selected) { selectedInput = nil }
+            if let selected = model.recordingInput, !inputs.contains(selected) { model.recordingInput = nil }
         }
     }
 }
