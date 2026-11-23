@@ -1,8 +1,15 @@
 import AVFoundation
 
-public enum ResamplerError: Error {
+public enum ResamplerError: Error, LocalizedError {
     case unsupportedRates(from: Int, to: Int)
     case conversionFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedRates(let from, let to): "Cannot convert audio from \(from) Hz to \(to) Hz."
+        case .conversionFailed(let detail): "Sample-rate conversion failed: \(detail)"
+        }
+    }
 }
 
 /// Mono Float32 sample-rate conversion that can be fed in arbitrary chunks;

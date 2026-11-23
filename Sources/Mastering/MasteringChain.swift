@@ -8,9 +8,11 @@ public final class MasteringChain {
     public var loudnessGainDB: Double = 0
     /// Per-band studio-tone correction measured on this audio
     /// (`StudioTone.Analysis.correction`); empty until measured.
-    public var studioToneCorrection: [Double] = [] {
-        didSet { rebuildStudioTone() }
+    public var studioToneCorrection: [Double] {
+        get { correction }
+        set { apply(Self.design(settings, studioToneCorrection: newValue, sampleRate: Int(sampleRate))) }
     }
+    private var correction: [Double] = []
     private let sampleRate: Double
 
     private var highpass: Biquad
@@ -33,27 +35,55 @@ public final class MasteringChain {
     /// Frames by which output lags input (the limiter's look-ahead).
     public var latencyFrames: Int { settings.limiter.enabled ? limiter.latency : 0 }
 
-    /// Applies new parameters while keeping filter and envelope state.
-    public func update(_ new: MasteringSettings) {
-        highpass.setCoefficients(from: Self.makeHighpass(new.highpass, sampleRate))
-        for (i, band) in Self.makeEQ(new.eq, sampleRate).enumerated() {
-            eq[i].setCoefficients(from: band)
-        }
-        deEsser.update(new.deEsser)
-        compressor.update(new.compressor)
-        limiter.setCeiling(new.limiter.ceilingDBTP)
-        settings = new
-        rebuildStudioTone()
+    /// Filter coefficients for a parameter set. Designing them (studio tone in
+    /// particular) is costly, so a real-time owner computes a `Design` outside
+    /// its lock and only `apply`s it under the lock.
+    public struct Design: Sendable {
+        let settings: MasteringSettings
+        let studioToneCorrection: [Double]
+        let highpass: Biquad
+        let eq: [Biquad]
+        let studioTone: [Biquad]
     }
 
+    public static func design(_ settings: MasteringSettings, studioToneCorrection: [Double], sampleRate: Int) -> Design {
+        let fs = Double(sampleRate)
+        let studioTone = studioToneCorrection.isEmpty ? [] : StudioTone.filters(
+            target: StudioTone.target(correction: studioToneCorrection, amount: settings.studioTone.amount), sampleRate: fs)
+        return Design(settings: settings, studioToneCorrection: studioToneCorrection,
+                      highpass: makeHighpass(settings.highpass, fs), eq: makeEQ(settings.eq, fs), studioTone: studioTone)
+    }
+
+    /// Applies new parameters while keeping filter and envelope state.
+    public func update(_ new: MasteringSettings) {
+        apply(Self.design(new, studioToneCorrection: correction, sampleRate: Int(sampleRate)))
+    }
+
+    /// Swaps in precomputed coefficients, keeping filter and envelope state.
+    /// Does not allocate unless the number of studio-tone bands changes.
+    public func apply(_ design: Design) {
+        highpass.setCoefficients(from: design.highpass)
+        for i in eq.indices { eq[i].setCoefficients(from: design.eq[i]) }
+        deEsser.update(design.settings.deEsser)
+        compressor.update(design.settings.compressor)
+        limiter.setCeiling(design.settings.limiter.ceilingDBTP)
+        settings = design.settings
+        correction = design.studioToneCorrection
+        if design.studioTone.count == studioTone.count {
+            for i in studioTone.indices { studioTone[i].setCoefficients(from: design.studioTone[i]) }
+        } else {
+            studioTone = design.studioTone
+        }
+    }
+
+    /// Clears all filter, envelope and look-ahead state in place (no allocation).
     public func reset() {
-        let fresh = MasteringChain(settings: settings, sampleRate: Int(sampleRate))
-        highpass = fresh.highpass
-        eq = fresh.eq
-        deEsser = fresh.deEsser
-        compressor = fresh.compressor
-        limiter = fresh.limiter
+        highpass.reset()
+        for i in eq.indices { eq[i].reset() }
         for i in studioTone.indices { studioTone[i].reset() }
+        deEsser.reset()
+        compressor.reset()
+        limiter.reset()
     }
 
     public func process(_ samples: inout [Float]) {
@@ -83,21 +113,6 @@ public final class MasteringChain {
         if settings.deEsser.enabled { x = deEsser.process(x) }
         if settings.compressor.enabled { x = compressor.process(x) }
         return x
-    }
-
-    /// Applies `studioToneCorrection` at the current amount, keeping filter state.
-    private func rebuildStudioTone() {
-        guard !studioToneCorrection.isEmpty else {
-            studioTone = []
-            return
-        }
-        let target = StudioTone.target(correction: studioToneCorrection, amount: settings.studioTone.amount)
-        let filters = StudioTone.filters(target: target, sampleRate: sampleRate)
-        if filters.count == studioTone.count {
-            for i in filters.indices { studioTone[i].setCoefficients(from: filters[i]) }
-        } else {
-            studioTone = filters
-        }
     }
 
     private static func makeHighpass(_ s: MasteringSettings.Highpass, _ fs: Double) -> Biquad {

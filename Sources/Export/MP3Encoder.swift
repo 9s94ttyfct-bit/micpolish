@@ -9,8 +9,14 @@ final class MP3Encoder: MonoEncoder {
     private var output = [UInt8]()
 
     init(url: URL, sampleRate: Int, bitrateKbps: Int) throws {
-        guard let gf = lame_init() else { throw ExportError.encoderFailed("lame_init") }
-        self.gf = gf
+        // Create the output first so its real error (disk full, missing volume,
+        // permissions) propagates, before any LAME context exists to leak.
+        try Data().write(to: url)
+        let handle = try FileHandle(forWritingTo: url)
+        guard let gf = lame_init() else {
+            try? handle.close()
+            throw ExportError.encoderFailed("lame_init")
+        }
         lame_set_in_samplerate(gf, Int32(sampleRate))
         lame_set_out_samplerate(gf, Int32(sampleRate))
         lame_set_num_channels(gf, 1)
@@ -21,13 +27,11 @@ final class MP3Encoder: MonoEncoder {
         lame_set_bWriteVbrTag(gf, 1)
         guard lame_init_params(gf) >= 0 else {
             lame_close(gf)
+            try? handle.close()
             throw ExportError.encoderFailed("lame_init_params")
         }
-        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
-            lame_close(gf)
-            throw CocoaError(.fileWriteNoPermission)
-        }
-        handle = try FileHandle(forWritingTo: url)
+        self.gf = gf
+        self.handle = handle
     }
 
     deinit {

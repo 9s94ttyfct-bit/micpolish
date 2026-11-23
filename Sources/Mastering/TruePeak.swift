@@ -43,4 +43,10 @@ struct TruePeakOversampler {
         position = (position + 1) % Self.tapsPerPhase
         return peak
     }
+
+    /// Clears the history in place (no allocation).
+    mutating func reset() {
+        for i in history.indices { history[i] = 0 }
+        position = 0
+    }
 }

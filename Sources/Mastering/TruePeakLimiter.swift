@@ -41,6 +41,18 @@ struct TruePeakLimiter {
         ceiling = dbToLinear(ceilingDBTP - Self.marginDB)
     }
 
+    /// Returns to the initial state in place (no allocation).
+    mutating func reset() {
+        oversampler.reset()
+        for i in inputDelay.indices { inputDelay[i] = 0 }
+        inputIndex = 0
+        requirements.reset()
+        for i in boxValues.indices { boxValues[i] = 1 }
+        boxIndex = 0
+        boxSum = Double(window)
+        recovered = 1
+    }
+
     @inline(__always)
     mutating func process(_ x: Double) -> Double {
         inputDelay[inputIndex] = x
@@ -99,6 +111,12 @@ struct MinQueue {
             count -= 1
         }
         time += 1
+    }
+
+    mutating func reset() {
+        head = 0
+        count = 0
+        time = 0
     }
 
     var minimum: Double { count > 0 ? values[head] : 1 }

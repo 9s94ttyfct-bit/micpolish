@@ -77,15 +77,17 @@ final class PreviewState: @unchecked Sendable {
     private var masteringInput: PreviewSignal? { processed ?? original }
 
     /// Restarts the mastering chain so its output is aligned with `position`:
-    /// the limiter's look-ahead is pre-rolled from the input signal.
+    /// the limiter's look-ahead is pre-rolled from the input signal. Does not
+    /// allocate, so holding the render lock here stays short.
     func primeChain() {
         chain.reset()
         let latency = chain.latencyFrames
         guard latency > 0, let input = masteringInput else { return }
-        var preroll = [Float](repeating: 0, count: latency)
-        preroll.withUnsafeMutableBufferPointer { buffer in
-            input.copy(from: position, count: latency, into: buffer.baseAddress!)
-            chain.process(buffer)
+        precondition(latency <= scratch.count, "limiter look-ahead exceeds the preview scratch buffer")
+        scratch.withUnsafeMutableBufferPointer { buffer in
+            let preroll = UnsafeMutableBufferPointer(rebasing: buffer[0..<latency])
+            input.copy(from: position, count: latency, into: preroll.baseAddress!)
+            chain.process(preroll)
         }
     }
 
@@ -226,10 +228,13 @@ public final class PreviewPlayer: ObservableObject {
     /// playing, filter state carries over to avoid clicks. `studioTone` is the
     /// measured studio-tone correction; nil keeps the current one.
     public func setMastering(_ settings: MasteringSettings, loudnessGainDB: Double, studioTone: [Double]? = nil) {
+        // Filter design is costly; do it before taking the lock the render
+        // callback shares, so the I/O thread never waits on it.
+        let correction = studioTone ?? state.withLock { state.chain.studioToneCorrection }
+        let design = MasteringChain.design(settings, studioToneCorrection: correction, sampleRate: AudioCore.sampleRate)
         state.withLock {
             let latencyChanged = settings.limiter.enabled != state.chain.settings.limiter.enabled
-            state.chain.update(settings)
-            if let studioTone { state.chain.studioToneCorrection = studioTone }
+            state.chain.apply(design)
             state.chain.loudnessGainDB = loudnessGainDB
             if latencyChanged || !state.playing { state.primeChain() }
         }
@@ -317,7 +322,8 @@ public final class PreviewPlayer: ObservableObject {
         if settings.loudness.enabled, loudness[.processed] ?? loudness[.original] != nil {
             mastered = Float(pow(10, (Self.comparisonLUFS - settings.loudness.targetLUFS) / 20))
         } else {
-            mastered = processed * Float(pow(10, -gainDB / 20))
+            // Undo only gain the chain actually applies (none with loudness off).
+            mastered = processed * (settings.loudness.enabled ? Float(pow(10, -gainDB / 20)) : 1)
         }
         state.withLock {
             state.originalGain = original

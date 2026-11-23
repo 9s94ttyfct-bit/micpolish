@@ -50,6 +50,35 @@ final class MasteringChainTests: XCTestCase {
         XCTAssertEqual(run(block: 4096), whole)
     }
 
+    /// The preview re-primes the chain with `reset()` instead of rebuilding it;
+    /// every stage (filters, de-esser, compressor, limiter look-ahead) must
+    /// return to the state of a freshly built chain.
+    func testResetMatchesAFreshChain() {
+        var settings = MasteringSettings.macbookMicCorrection
+        settings.loudness.enabled = true
+        settings.studioTone = .init(enabled: true, amount: 1)
+        let correction: [Double] = [-3, 2, 4, -1, 0, 1, -2, 3, -4]
+        func makeChain() -> MasteringChain {
+            let chain = MasteringChain(settings: settings, sampleRate: 48_000)
+            chain.studioToneCorrection = correction
+            chain.loudnessGainDB = 18 // drives the limiter hard
+            return chain
+        }
+        let warmup = TestSignals.modulatedNoise(seconds: 2, rmsDB: -10)
+        let input = TestSignals.modulatedNoise(seconds: 2, rmsDB: -18)
+
+        let reused = makeChain()
+        var scratch = warmup
+        reused.process(&scratch)
+        reused.reset()
+        var afterReset = input
+        reused.process(&afterReset)
+
+        var fresh = input
+        makeChain().process(&fresh)
+        XCTAssertEqual(afterReset, fresh)
+    }
+
     func testHighpassAttenuates40Hz() {
         var settings = allBypassed()
         settings.highpass.enabled = true

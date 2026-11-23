@@ -18,9 +18,18 @@ public struct ExportOptions: Codable, Equatable, Sendable {
     }
 }
 
-public enum ExportError: Error, Equatable {
+public enum ExportError: Error, Equatable, LocalizedError {
     case encoderFailed(String)
     case verificationFailed(expectedSeconds: Double, actualSeconds: Double)
+
+    public var errorDescription: String? {
+        switch self {
+        case .encoderFailed(let detail):
+            "The encoder failed (\(detail))."
+        case .verificationFailed(let expected, let actual):
+            String(format: "The exported file lasts %.1f s instead of %.1f s, so it was discarded.", actual, expected)
+        }
+    }
 }
 
 protocol MonoEncoder {

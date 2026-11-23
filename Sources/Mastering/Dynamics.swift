@@ -34,6 +34,11 @@ struct Compressor {
         release = smoothingCoefficient(ms: s.releaseMs, sampleRate: sampleRate)
     }
 
+    mutating func reset() {
+        envelopeDB = -120
+        gainReductionDB = 0
+    }
+
     private var makeupDB: Double {
         settings.autoMakeup ? -settings.thresholdDB * (1 - 1 / settings.ratio) * 0.5 : 0
     }
@@ -85,6 +90,13 @@ struct DeEsser {
         settings = s
         split.setCoefficients(from: .highpass(frequency: s.frequencyHz * 0.7, q: 0.707, sampleRate: sampleRate))
         sidechain.setCoefficients(from: .bandpass(frequency: s.frequencyHz, q: 1.5, sampleRate: sampleRate))
+    }
+
+    mutating func reset() {
+        split.reset()
+        sidechain.reset()
+        envelope = 0
+        gainDB = 0
     }
 
     @inline(__always)
